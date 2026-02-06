@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link id="theme-css" rel="stylesheet" href="preview-light.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div id="content"></div>
+    <script>
+        function updateContent(html) {
+            var el = document.getElementById('content');
+            el.textContent = '';
+            var temp = document.createElement('div');
+            temp.innerHTML = html;
+            while (temp.firstChild) {
+                el.appendChild(temp.firstChild);
+            }
+        }
+
+        function setTheme(theme) {
+            document.getElementById('theme-css').href = theme + '.css';
+        }
+    </script>
+</body>
+</html>

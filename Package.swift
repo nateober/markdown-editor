@@ -16,7 +16,10 @@ let package = Package(
                 .product(name: "libcmark_gfm", package: "libcmark_gfm"),
                 "Yams",
             ],
-            path: "MarkdownEditor"
+            path: "MarkdownEditor",
+            resources: [
+                .copy("Resources")
+            ]
         ),
         .testTarget(
             name: "MarkdownEditorTests",
