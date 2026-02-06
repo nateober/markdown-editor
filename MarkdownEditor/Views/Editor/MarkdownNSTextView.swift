@@ -2,6 +2,24 @@ import AppKit
 
 class MarkdownNSTextView: NSTextView {
 
+    convenience init(textStorage: MarkdownTextStorage) {
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+
+        let textContainer = NSTextContainer()
+        textContainer.widthTracksTextView = true
+        textContainer.containerSize = NSSize(
+            width: 0,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        layoutManager.addTextContainer(textContainer)
+
+        self.init(frame: .zero, textContainer: textContainer)
+        configureDefaults()
+        // Re-enable rich text so syntax highlighting attributes are rendered
+        isRichText = true
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         configureDefaults()

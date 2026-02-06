@@ -11,11 +11,15 @@ struct MarkdownTextView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
 
-        let textView = MarkdownNSTextView()
+        let storage = MarkdownTextStorage()
+        let textView = MarkdownNSTextView(textStorage: storage)
         textView.delegate = context.coordinator
-        textView.string = text
+
+        // Set initial text via the storage
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
 
         scrollView.documentView = textView
+        context.coordinator.textView = textView
         return scrollView
     }
 
@@ -23,7 +27,9 @@ struct MarkdownTextView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? MarkdownNSTextView else { return }
         if textView.string != text {
             let selectedRanges = textView.selectedRanges
-            textView.string = text
+            if let storage = textView.textStorage {
+                storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: text)
+            }
             textView.selectedRanges = selectedRanges
         }
     }
@@ -34,6 +40,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
+        weak var textView: MarkdownNSTextView?
 
         init(text: Binding<String>) {
             self.text = text
