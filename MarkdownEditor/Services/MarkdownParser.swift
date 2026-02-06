@@ -35,6 +35,9 @@ final class MarkdownParser {
     }
 
     private func renderToHTML(_ markdown: String) -> String {
+        // Ensure extensions are registered before each parse call
+        cmark_gfm_core_extensions_ensure_registered()
+
         let options = CMARK_OPT_UNSAFE | CMARK_OPT_FOOTNOTES
 
         guard let parser = cmark_parser_new(options) else { return "" }

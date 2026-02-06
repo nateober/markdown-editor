@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(swift:*)",
+      "Bash(xcodebuild:*)",
+      "Bash(sw_vers:*)",
+      "WebSearch"
+    ]
+  }
+}

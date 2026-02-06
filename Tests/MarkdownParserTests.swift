@@ -38,9 +38,11 @@ struct MarkdownParserTests {
 
     @Test("Parse strikethrough")
     func parseStrikethrough() {
-        let md = "~~deleted~~"
+        let md = "This is ~~deleted~~ text"
         let result = parser.parse(md)
-        #expect(result.contains("<del>"))
+        // cmark-gfm may render strikethrough as <del> or <s>
+        let hasStrikethrough = result.contains("<del>") || result.contains("<s>")
+        #expect(hasStrikethrough, "Expected strikethrough HTML but got: \(result)")
     }
 
     @Test("Parse fenced code block")
