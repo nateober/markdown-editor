@@ -1,7 +1,7 @@
 import Testing
 @testable import MarkdownEditor
 
-@Suite("MarkdownParser")
+@Suite("MarkdownParser", .serialized)
 struct MarkdownParserTests {
     let parser = MarkdownParser()
 
