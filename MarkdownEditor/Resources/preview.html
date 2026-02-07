@@ -4,6 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link id="theme-css" rel="stylesheet" href="preview-light.css">
+    <!-- KaTeX CSS -->
+    <link rel="stylesheet" href="katex/katex.min.css">
+    <!-- highlight.js CSS -->
+    <link id="hljs-css" rel="stylesheet" href="highlight/github.min.css">
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
@@ -12,11 +16,33 @@
             margin: 0 auto;
             padding: 24px;
         }
+        /* Mermaid diagram containers */
+        .mermaid-container {
+            text-align: center;
+            margin: 1em 0;
+        }
+        .mermaid-container svg {
+            max-width: 100%;
+        }
     </style>
 </head>
 <body>
     <div id="content"></div>
+
+    <!-- KaTeX JS -->
+    <script src="katex/katex.min.js"></script>
+    <script src="katex/auto-render.min.js"></script>
+    <!-- highlight.js -->
+    <script src="highlight/highlight.min.js"></script>
+    <!-- Mermaid.js -->
+    <script src="mermaid/mermaid.min.js"></script>
+
     <script>
+        // Initialize mermaid with auto-start disabled so we control when it runs
+        mermaid.initialize({ startOnLoad: false, theme: 'default' });
+
+        var mermaidCounter = 0;
+
         function updateContent(html) {
             var el = document.getElementById('content');
             el.textContent = '';
@@ -25,10 +51,70 @@
             while (temp.firstChild) {
                 el.appendChild(temp.firstChild);
             }
+            renderExtensions();
+        }
+
+        function renderExtensions() {
+            // 1. KaTeX auto-render: render math in $...$ and $$...$$ delimiters
+            try {
+                renderMathInElement(document.getElementById('content'), {
+                    delimiters: [
+                        { left: '$$', right: '$$', display: true },
+                        { left: '$', right: '$', display: false },
+                        { left: '\\(', right: '\\)', display: false },
+                        { left: '\\[', right: '\\]', display: true }
+                    ],
+                    throwOnError: false
+                });
+            } catch (e) {
+                console.warn('KaTeX rendering error:', e);
+            }
+
+            // 2. highlight.js: syntax-highlight all code blocks
+            try {
+                var codeBlocks = document.querySelectorAll('#content pre code');
+                codeBlocks.forEach(function(block) {
+                    // Skip mermaid blocks
+                    if (!block.classList.contains('language-mermaid')) {
+                        hljs.highlightElement(block);
+                    }
+                });
+            } catch (e) {
+                console.warn('highlight.js rendering error:', e);
+            }
+
+            // 3. Mermaid: render mermaid code blocks
+            try {
+                var mermaidBlocks = document.querySelectorAll('#content code.language-mermaid');
+                mermaidBlocks.forEach(function(codeEl) {
+                    var pre = codeEl.parentElement;
+                    if (pre && pre.tagName === 'PRE') {
+                        var container = document.createElement('div');
+                        container.className = 'mermaid-container';
+                        var mermaidDiv = document.createElement('div');
+                        mermaidDiv.className = 'mermaid';
+                        mermaidDiv.textContent = codeEl.textContent;
+                        container.appendChild(mermaidDiv);
+                        pre.parentNode.replaceChild(container, pre);
+                    }
+                });
+                // Run mermaid on all .mermaid elements
+                mermaid.run({ querySelector: '.mermaid' }).catch(function(e) {
+                    console.warn('Mermaid rendering error:', e);
+                });
+            } catch (e) {
+                console.warn('Mermaid rendering error:', e);
+            }
         }
 
         function setTheme(theme) {
             document.getElementById('theme-css').href = theme + '.css';
+            // Switch highlight.js theme based on light/dark
+            if (theme.indexOf('dark') !== -1) {
+                document.getElementById('hljs-css').href = 'highlight/github-dark.min.css';
+            } else {
+                document.getElementById('hljs-css').href = 'highlight/github.min.css';
+            }
         }
     </script>
 </body>
