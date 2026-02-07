@@ -14,17 +14,43 @@ struct DocumentTextKey: FocusedValueKey {
     typealias Value = String
 }
 
+// MARK: - FocusedValue for View Mode
+
+/// Key for setting the current view mode from menu commands.
+struct ViewModeKey: FocusedValueKey {
+    typealias Value = Binding<ViewMode>
+}
+
+// MARK: - FocusedValue for Sidebar Visibility
+
+/// Key for toggling sidebar visibility from menu commands.
+struct SidebarVisibilityKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 extension FocusedValues {
     var documentText: String? {
         get { self[DocumentTextKey.self] }
         set { self[DocumentTextKey.self] = newValue }
     }
+
+    var viewMode: Binding<ViewMode>? {
+        get { self[ViewModeKey.self] }
+        set { self[ViewModeKey.self] = newValue }
+    }
+
+    var sidebarVisible: Binding<Bool>? {
+        get { self[SidebarVisibilityKey.self] }
+        set { self[SidebarVisibilityKey.self] = newValue }
+    }
 }
 
 /// Custom menu commands for the Markdown Editor app.
-/// Provides an "Open Folder..." command, export submenu, and find/replace.
+/// Provides file commands, export, view mode switching, find/replace, and sidebar toggle.
 struct AppCommands: Commands {
     @FocusedValue(\.documentText) var documentText
+    @FocusedValue(\.viewMode) var viewMode
+    @FocusedValue(\.sidebarVisible) var sidebarVisible
 
     private let exportService = ExportService()
 
@@ -63,6 +89,34 @@ struct AppCommands: Commands {
                 .keyboardShortcut("w", modifiers: [.command, .shift])
             }
             .disabled(documentText == nil)
+        }
+
+        // MARK: - View Mode Commands
+
+        CommandMenu("View") {
+            Button("Side by Side") {
+                viewMode?.wrappedValue = .sideBySide
+            }
+            .keyboardShortcut("1", modifiers: .command)
+
+            Button("Editor Only") {
+                viewMode?.wrappedValue = .editorOnly
+            }
+            .keyboardShortcut("2", modifiers: .command)
+
+            Button("Preview Only") {
+                viewMode?.wrappedValue = .previewOnly
+            }
+            .keyboardShortcut("3", modifiers: .command)
+
+            Divider()
+
+            Button("Toggle Sidebar") {
+                if let binding = sidebarVisible {
+                    binding.wrappedValue.toggle()
+                }
+            }
+            .keyboardShortcut("\\", modifiers: .command)
         }
 
         // MARK: - Find & Replace Commands

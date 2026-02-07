@@ -59,6 +59,8 @@ struct ContentView: View {
         }
         .frame(minWidth: 600, minHeight: 400)
         .focusedValue(\.documentText, document.text)
+        .focusedValue(\.viewMode, $viewMode)
+        .focusedValue(\.sidebarVisible, $isSidebarVisible)
     }
 
     private var sidebarVisibility: Binding<NavigationSplitViewVisibility> {
