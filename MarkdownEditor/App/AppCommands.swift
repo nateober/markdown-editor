@@ -7,15 +7,58 @@ extension Notification.Name {
     static let openFolder = Notification.Name("com.markdownEditor.openFolder")
 }
 
+// MARK: - FocusedValue for Document Text
+
+/// Key for passing the current document's markdown text to menu commands via @FocusedValue.
+struct DocumentTextKey: FocusedValueKey {
+    typealias Value = String
+}
+
+extension FocusedValues {
+    var documentText: String? {
+        get { self[DocumentTextKey.self] }
+        set { self[DocumentTextKey.self] = newValue }
+    }
+}
+
 /// Custom menu commands for the Markdown Editor app.
-/// Provides an "Open Folder..." command that presents an NSOpenPanel for directory selection.
+/// Provides an "Open Folder..." command and export submenu.
 struct AppCommands: Commands {
+    @FocusedValue(\.documentText) var documentText
+
+    private let exportService = ExportService()
+
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("Open Folder...") {
                 openFolderPanel()
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
+        }
+
+        CommandGroup(after: .importExport) {
+            Menu("Export") {
+                Button("Export as PDF...") {
+                    guard let text = documentText else { return }
+                    let darkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    exportService.exportPDF(markdown: text, darkMode: darkMode)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+
+                Button("Export as HTML...") {
+                    guard let text = documentText else { return }
+                    let darkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    exportService.exportHTML(markdown: text, darkMode: darkMode)
+                }
+                .keyboardShortcut("h", modifiers: [.command, .option])
+
+                Button("Export as Word...") {
+                    guard let text = documentText else { return }
+                    exportService.exportDOCX(markdown: text)
+                }
+                .keyboardShortcut("w", modifiers: [.command, .shift])
+            }
+            .disabled(documentText == nil)
         }
     }
 
