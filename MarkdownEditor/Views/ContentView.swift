@@ -8,25 +8,17 @@ struct ContentView: View {
     @State private var debounceTask: Task<Void, Never>?
     @State private var cursorPosition: Int = 0
     @State private var vimMode: VimMode = .normal
+    @State private var folderModel = FolderTreeModel()
+    @State private var isSidebarVisible: Bool = false
 
     private let htmlGenerator = PreviewHTMLGenerator()
 
     var body: some View {
-        VStack(spacing: 0) {
-            EditorContainerView(
-                text: $document.text,
-                viewMode: viewMode,
-                htmlBody: previewHTML,
-                baseURL: nil
-            )
-
-            Divider()
-
-            StatusBarView(
-                text: document.text,
-                vimMode: vimMode,
-                cursorPosition: cursorPosition
-            )
+        NavigationSplitView(columnVisibility: sidebarVisibility) {
+            FolderSidebarView(model: folderModel)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 350)
+        } detail: {
+            editorContent
         }
         .toolbar {
             ToolbarItem(placement: .automatic) {
@@ -46,7 +38,46 @@ struct ContentView: View {
         .onAppear {
             previewHTML = htmlGenerator.generateBody(from: document.text)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openFolder)) { notification in
+            if let url = notification.object as? URL {
+                folderModel.loadFolder(at: url)
+                isSidebarVisible = true
+            }
+        }
+        .onChange(of: folderModel.selectedFileURL) { _, newURL in
+            if let url = newURL {
+                openFileInDocument(url)
+            }
+        }
         .frame(minWidth: 600, minHeight: 400)
+    }
+
+    private var sidebarVisibility: Binding<NavigationSplitViewVisibility> {
+        Binding(
+            get: { isSidebarVisible ? .all : .detailOnly },
+            set: { newValue in
+                isSidebarVisible = (newValue != .detailOnly)
+            }
+        )
+    }
+
+    private var editorContent: some View {
+        VStack(spacing: 0) {
+            EditorContainerView(
+                text: $document.text,
+                viewMode: viewMode,
+                htmlBody: previewHTML,
+                baseURL: nil
+            )
+
+            Divider()
+
+            StatusBarView(
+                text: document.text,
+                vimMode: vimMode,
+                cursorPosition: cursorPosition
+            )
+        }
     }
 
     private func schedulePreviewUpdate(for text: String) {
@@ -59,5 +90,13 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private func openFileInDocument(_ url: URL) {
+        guard let data = try? Data(contentsOf: url),
+              let content = String(data: data, encoding: .utf8) else {
+            return
+        }
+        document.text = content
     }
 }

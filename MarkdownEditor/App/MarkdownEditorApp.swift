@@ -9,5 +9,8 @@ struct MarkdownEditorApp: App {
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
+        .commands {
+            AppCommands()
+        }
     }
 }
