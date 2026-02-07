@@ -41,8 +41,6 @@
         // Initialize mermaid with auto-start disabled so we control when it runs
         mermaid.initialize({ startOnLoad: false, theme: 'default' });
 
-        var mermaidCounter = 0;
-
         function updateContent(html) {
             var el = document.getElementById('content');
             el.textContent = '';

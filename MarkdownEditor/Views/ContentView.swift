@@ -6,16 +6,28 @@ struct ContentView: View {
     @State private var viewMode: ViewMode = .sideBySide
     @State private var previewHTML: String = ""
     @State private var debounceTask: Task<Void, Never>?
+    @State private var cursorPosition: Int = 0
+    @State private var vimMode: VimMode = .normal
 
     private let htmlGenerator = PreviewHTMLGenerator()
 
     var body: some View {
-        EditorContainerView(
-            text: $document.text,
-            viewMode: viewMode,
-            htmlBody: previewHTML,
-            baseURL: nil
-        )
+        VStack(spacing: 0) {
+            EditorContainerView(
+                text: $document.text,
+                viewMode: viewMode,
+                htmlBody: previewHTML,
+                baseURL: nil
+            )
+
+            Divider()
+
+            StatusBarView(
+                text: document.text,
+                vimMode: vimMode,
+                cursorPosition: cursorPosition
+            )
+        }
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 Picker("View Mode", selection: $viewMode) {
