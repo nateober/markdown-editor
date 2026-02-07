@@ -37,8 +37,9 @@ final class VimMotionExecutor {
         // Restore cursor
         textView.setSelectedRange(savedRange)
 
+        let maxLen = (textView.string as NSString).length
         let loc = min(startLocation, endLocation)
-        let len = abs(endLocation - startLocation)
+        let len = min(abs(endLocation - startLocation), maxLen - loc)
         return NSRange(location: loc, length: len)
     }
 
@@ -271,8 +272,9 @@ final class VimMotionExecutor {
         let location = textView.selectedRange().location
 
         guard location < string.length else { return }
+        guard let scalar = UnicodeScalar(string.character(at: location)) else { return }
 
-        let ch = Character(UnicodeScalar(string.character(at: location))!)
+        let ch = Character(scalar)
         let pairs: [(Character, Character)] = [
             ("(", ")"), ("[", "]"), ("{", "}")
         ]
@@ -312,7 +314,8 @@ final class VimMotionExecutor {
     private func findMatchingForward(open: Character, close: Character, in string: NSString, from start: Int) -> Int? {
         var depth = 0
         for i in start..<string.length {
-            let ch = Character(UnicodeScalar(string.character(at: i))!)
+            guard let scalar = UnicodeScalar(string.character(at: i)) else { continue }
+            let ch = Character(scalar)
             if ch == open { depth += 1 }
             else if ch == close { depth -= 1 }
             if depth == 0 { return i }
@@ -323,7 +326,8 @@ final class VimMotionExecutor {
     private func findMatchingBackward(open: Character, close: Character, in string: NSString, from start: Int) -> Int? {
         var depth = 0
         for i in stride(from: start, through: 0, by: -1) {
-            let ch = Character(UnicodeScalar(string.character(at: i))!)
+            guard let scalar = UnicodeScalar(string.character(at: i)) else { continue }
+            let ch = Character(scalar)
             if ch == close { depth += 1 }
             else if ch == open { depth -= 1 }
             if depth == 0 { return i }

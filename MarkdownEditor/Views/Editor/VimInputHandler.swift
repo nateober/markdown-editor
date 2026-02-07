@@ -401,6 +401,12 @@ final class VimInputHandler {
             return .pending
         }
 
+        // Ctrl+R for redo (must check before "r" for replace)
+        if modifiers.contains(.control) && (key == "r" || key == "R" || key == "\u{12}") {
+            _ = consumeCount()
+            return .redo
+        }
+
         // r prefix
         if key == "r" {
             _state = .awaitingChar(.replace)
@@ -441,12 +447,6 @@ final class VimInputHandler {
             return .searchForward
         default:
             break
-        }
-
-        // Ctrl+R for redo
-        if modifiers.contains(.control) && (key == "r" || key == "R" || key == "\u{12}") {
-            _ = consumeCount()
-            return .redo
         }
 
         // Not handled

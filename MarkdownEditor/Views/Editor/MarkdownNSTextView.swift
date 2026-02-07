@@ -402,8 +402,10 @@ class MarkdownNSTextView: NSTextView {
                     s.removeFirst(1)
                 } else {
                     // Remove as many leading spaces as possible up to 4
-                    while s.hasPrefix(" ") && s.count > 0 {
+                    var removed = 0
+                    while s.hasPrefix(" ") && removed < 4 {
                         s.removeFirst(1)
+                        removed += 1
                     }
                 }
                 return s
