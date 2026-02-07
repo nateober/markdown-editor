@@ -1,6 +1,16 @@
 import AppKit
+import UniformTypeIdentifiers
 
 class MarkdownNSTextView: NSTextView {
+
+    // MARK: - Image Properties
+
+    /// The URL of the document currently being edited.
+    /// Must be set (i.e. the document must be saved to disk) before images can be pasted or dropped.
+    var documentURL: URL?
+
+    /// The image manager used for saving pasted / dropped images.
+    let imageManager = ImageManager()
 
     // MARK: - Vim Properties
 
@@ -74,6 +84,9 @@ class MarkdownNSTextView: NSTextView {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
+
+        // Register for image drag types.
+        registerForDraggedTypes([.fileURL, .png, .tiff])
     }
 
     // MARK: - Key Handling
@@ -417,5 +430,136 @@ class MarkdownNSTextView: NSTextView {
             didChangeText()
             setSelectedRange(NSRange(location: lineRange.location, length: 0))
         }
+    }
+
+    // MARK: - Paste Override (Image Support)
+
+    override func paste(_ sender: Any?) {
+        let pasteboard = NSPasteboard.general
+
+        // Check for image data on the pasteboard first.
+        if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
+            if let pngData = normalizeImageDataToPNG(imageData) {
+                insertImageFromData(pngData)
+                return
+            }
+        }
+
+        // Fall through to default paste behaviour (text, etc.).
+        super.paste(sender)
+    }
+
+    // MARK: - Drag & Drop (Image Support)
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let pasteboard = sender.draggingPasteboard
+
+        if pasteboard.canReadObject(forClasses: [NSURL.self], options: imageFileReadingOptions())
+            || pasteboard.types?.contains(.png) == true
+            || pasteboard.types?.contains(.tiff) == true {
+            return .copy
+        }
+
+        return super.draggingEntered(sender)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let pasteboard = sender.draggingPasteboard
+
+        // 1. Try reading file URLs that are images.
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+                                             options: imageFileReadingOptions()) as? [URL],
+           let firstURL = urls.first {
+            return insertImageFromFileURL(firstURL, at: sender)
+        }
+
+        // 2. Try raw image data (e.g. dragged from another app).
+        if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
+            if let pngData = normalizeImageDataToPNG(imageData) {
+                // Set insertion point at the drop location.
+                let dropPoint = convert(sender.draggingLocation, from: nil)
+                let charIndex = characterIndexForInsertion(at: dropPoint)
+                setSelectedRange(NSRange(location: charIndex, length: 0))
+                insertImageFromData(pngData)
+                return true
+            }
+        }
+
+        return super.performDragOperation(sender)
+    }
+
+    // MARK: - Image Insertion Helpers
+
+    /// Insert markdown image syntax for the given raw PNG data at the current cursor position.
+    private func insertImageFromData(_ data: Data) {
+        guard let docURL = documentURL else {
+            showDocumentNotSavedAlert()
+            return
+        }
+
+        guard let relativePath = imageManager.saveImage(data, relativeTo: docURL) else { return }
+        insertMarkdownImageSyntax(relativePath)
+    }
+
+    /// Copy an image file into the images directory and insert markdown syntax at the drop location.
+    private func insertImageFromFileURL(_ fileURL: URL, at sender: NSDraggingInfo) -> Bool {
+        guard let docURL = documentURL else {
+            showDocumentNotSavedAlert()
+            return false
+        }
+
+        guard let relativePath = imageManager.copyImage(from: fileURL, relativeTo: docURL) else {
+            return false
+        }
+
+        // Set insertion point at the drop location.
+        let dropPoint = convert(sender.draggingLocation, from: nil)
+        let charIndex = characterIndexForInsertion(at: dropPoint)
+        setSelectedRange(NSRange(location: charIndex, length: 0))
+
+        insertMarkdownImageSyntax(relativePath)
+        return true
+    }
+
+    /// Insert `![](path)` at the current selection / cursor position.
+    private func insertMarkdownImageSyntax(_ relativePath: String) {
+        let markdown = "![](\(relativePath))"
+        let insertRange = selectedRange()
+        if shouldChangeText(in: insertRange, replacementString: markdown) {
+            textStorage?.replaceCharacters(in: insertRange, with: markdown)
+            didChangeText()
+            setSelectedRange(NSRange(location: insertRange.location + markdown.count, length: 0))
+        }
+    }
+
+    /// Convert any image data (TIFF, PNG, etc.) to PNG bytes.
+    private func normalizeImageDataToPNG(_ data: Data) -> Data? {
+        guard let imageRep = NSBitmapImageRep(data: data) else { return nil }
+        return imageRep.representation(using: .png, properties: [:])
+    }
+
+    /// Options for reading file URLs that refer to image files.
+    private func imageFileReadingOptions() -> [NSPasteboard.ReadingOptionKey: Any] {
+        [
+            .urlReadingContentsConformToTypes: [
+                UTType.png.identifier,
+                UTType.jpeg.identifier,
+                UTType.tiff.identifier,
+                UTType.gif.identifier,
+                UTType.bmp.identifier,
+                UTType.image.identifier,
+            ]
+        ]
+    }
+
+    /// Show an alert informing the user the document must be saved before images can be embedded.
+    private func showDocumentNotSavedAlert() {
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Save Document First"
+        alert.informativeText = "Please save this document to disk before pasting or dropping images. The images are stored in a folder next to the document file."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window, completionHandler: nil)
     }
 }
