@@ -12,5 +12,9 @@ struct MarkdownEditorApp: App {
         .commands {
             AppCommands()
         }
+
+        Settings {
+            SettingsView()
+        }
     }
 }

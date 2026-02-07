@@ -11,6 +11,10 @@ struct ContentView: View {
     @State private var folderModel = FolderTreeModel()
     @State private var isSidebarVisible: Bool = false
 
+    @AppStorage("editorFontSize") private var fontSize: Double = 14
+    @AppStorage("vimModeEnabled") private var vimModeEnabled: Bool = false
+    @AppStorage("defaultViewMode") private var defaultViewModeRawValue: String = ViewMode.sideBySide.rawValue
+
     private let htmlGenerator = PreviewHTMLGenerator()
 
     var body: some View {
@@ -36,6 +40,10 @@ struct ContentView: View {
             schedulePreviewUpdate(for: newValue)
         }
         .onAppear {
+            // Apply the default view mode from settings on first appearance.
+            if let mode = ViewMode(rawValue: defaultViewModeRawValue) {
+                viewMode = mode
+            }
             previewHTML = htmlGenerator.generateBody(from: document.text)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openFolder)) { notification in
@@ -68,7 +76,9 @@ struct ContentView: View {
                 text: $document.text,
                 viewMode: viewMode,
                 htmlBody: previewHTML,
-                baseURL: nil
+                baseURL: nil,
+                fontSize: fontSize,
+                vimEnabled: vimModeEnabled
             )
 
             Divider()
@@ -76,7 +86,8 @@ struct ContentView: View {
             StatusBarView(
                 text: document.text,
                 vimMode: vimMode,
-                cursorPosition: cursorPosition
+                cursorPosition: cursorPosition,
+                vimEnabled: vimModeEnabled
             )
         }
     }

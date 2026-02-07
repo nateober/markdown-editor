@@ -4,13 +4,16 @@ struct StatusBarView: View {
     let text: String
     let vimMode: VimMode
     let cursorPosition: Int
+    var vimEnabled: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 16) {
-            // Vim mode badge
-            vimModeBadge
+            // Vim mode badge (only shown when Vim mode is enabled)
+            if vimEnabled {
+                vimModeBadge
+            }
 
             Spacer()
 
