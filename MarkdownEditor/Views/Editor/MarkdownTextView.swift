@@ -15,6 +15,10 @@ struct MarkdownTextView: NSViewRepresentable {
         let textView = MarkdownNSTextView(textStorage: storage)
         textView.delegate = context.coordinator
 
+        // Enable the use of the find bar (native NSTextView find panel)
+        textView.isIncrementalSearchingEnabled = true
+        textView.usesFindBar = true
+
         // Set initial text via the storage
         storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
 

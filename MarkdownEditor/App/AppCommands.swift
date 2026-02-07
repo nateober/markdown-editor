@@ -22,19 +22,23 @@ extension FocusedValues {
 }
 
 /// Custom menu commands for the Markdown Editor app.
-/// Provides an "Open Folder..." command and export submenu.
+/// Provides an "Open Folder..." command, export submenu, and find/replace.
 struct AppCommands: Commands {
     @FocusedValue(\.documentText) var documentText
 
     private let exportService = ExportService()
 
     var body: some Commands {
+        // MARK: - File Commands
+
         CommandGroup(after: .newItem) {
             Button("Open Folder...") {
                 openFolderPanel()
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
         }
+
+        // MARK: - Export Commands
 
         CommandGroup(after: .importExport) {
             Menu("Export") {
@@ -60,7 +64,23 @@ struct AppCommands: Commands {
             }
             .disabled(documentText == nil)
         }
+
+        // MARK: - Find & Replace Commands
+
+        CommandGroup(after: .textEditing) {
+            Button("Find...") {
+                triggerFindPanel(action: .showFindInterface)
+            }
+            .keyboardShortcut("f", modifiers: .command)
+
+            Button("Replace...") {
+                triggerFindPanel(action: .showReplaceInterface)
+            }
+            .keyboardShortcut("h", modifiers: [.command, .shift])
+        }
     }
+
+    // MARK: - Private Helpers
 
     private func openFolderPanel() {
         let panel = NSOpenPanel()
@@ -74,5 +94,12 @@ struct AppCommands: Commands {
         if panel.runModal() == .OK, let url = panel.url {
             NotificationCenter.default.post(name: .openFolder, object: url)
         }
+    }
+
+    /// Trigger the native NSTextView find panel on the key window's first responder.
+    private func triggerFindPanel(action: NSTextFinder.Action) {
+        guard let window = NSApp.keyWindow,
+              let textView = window.firstResponder as? NSTextView else { return }
+        textView.performTextFinderAction(action)
     }
 }
