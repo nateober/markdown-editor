@@ -68,7 +68,12 @@ final class ExportService {
     private func presentSavePanel(title: String, fileType: String, defaultName: String) -> URL? {
         let panel = NSSavePanel()
         panel.title = title
-        panel.nameFieldStringValue = defaultName
+
+        if let docName = NSDocumentController.shared.currentDocument?.fileURL?.deletingPathExtension().lastPathComponent {
+            panel.nameFieldStringValue = docName + "." + fileType
+        } else {
+            panel.nameFieldStringValue = defaultName
+        }
         panel.allowedContentTypes = [
             .init(filenameExtension: fileType) ?? .data
         ]

@@ -64,6 +64,18 @@ class MarkdownNSTextView: NSTextView {
         configureDefaults()
     }
 
+    // MARK: - Appearance Change
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        rehighlightAllText()
+    }
+
+    func rehighlightAllText() {
+        guard let storage = textStorage as? MarkdownTextStorage else { return }
+        storage.rehighlight()
+    }
+
     private func configureDefaults() {
         font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
         isAutomaticQuoteSubstitutionEnabled = false
@@ -74,6 +86,7 @@ class MarkdownNSTextView: NSTextView {
         allowsUndo = true
         isVerticallyResizable = true
         isHorizontallyResizable = false
+        maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textContainerInset = NSSize(width: 20, height: 20)
         autoresizingMask = [.width]
 
