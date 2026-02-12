@@ -2,10 +2,11 @@
 set -euo pipefail
 
 # MarkdownEditor - Build .app bundle
-# Usage: ./scripts/build-app.sh [--sign] [--notarize]
+# Usage: ./scripts/build-app.sh [--sign] [--notarize] [--dmg]
 
 SIGN=false
 NOTARIZE=false
+DMG=false
 DEVELOPER_ID="Developer ID Application: Nate Ober (684GQ6L3D9)"
 TEAM_ID="684GQ6L3D9"
 BUNDLE_ID="com.nateober.MarkdownEditor"
@@ -14,6 +15,7 @@ for arg in "$@"; do
     case $arg in
         --sign) SIGN=true ;;
         --notarize) NOTARIZE=true; SIGN=true ;;
+        --dmg) DMG=true ;;
     esac
 done
 
@@ -77,6 +79,23 @@ if [ "$NOTARIZE" = true ]; then
     echo "==> Notarization complete!"
 fi
 
+if [ "$DMG" = true ]; then
+    echo "==> Creating DMG..."
+    DMG_PATH="$PROJECT_DIR/build/MarkdownEditor.dmg"
+    DMG_STAGING="$PROJECT_DIR/build/dmg-staging"
+    rm -rf "$DMG_STAGING" "$DMG_PATH"
+    mkdir -p "$DMG_STAGING"
+    cp -R "$APP_DIR" "$DMG_STAGING/"
+    ln -s /Applications "$DMG_STAGING/Applications"
+    hdiutil create -volname "MarkdownEditor" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG_PATH"
+    rm -rf "$DMG_STAGING"
+    echo "==> DMG created at: $DMG_PATH"
+fi
+
 echo ""
 echo "Done! App is at: $APP_DIR"
-echo "To install: cp -R build/MarkdownEditor.app /Applications/"
+if [ "$DMG" = true ]; then
+    echo "DMG is at: $PROJECT_DIR/build/MarkdownEditor.dmg"
+else
+    echo "To install: cp -R build/MarkdownEditor.app /Applications/"
+fi
