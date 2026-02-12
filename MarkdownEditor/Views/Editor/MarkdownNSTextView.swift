@@ -20,6 +20,12 @@ class MarkdownNSTextView: NSTextView {
     /// The Vim input handler (state machine).
     let vimHandler = VimInputHandler()
 
+    /// Called when the vim mode changes (from key handling).
+    var onVimModeChanged: ((VimMode) -> Void)?
+
+    /// Tracks the last known mode to detect changes.
+    private var lastKnownVimMode: VimMode = .normal
+
     /// The Vim motion executor.
     private let vimMotionExecutor = VimMotionExecutor()
 
@@ -138,6 +144,8 @@ class MarkdownNSTextView: NSTextView {
     private func dispatchVimResult(_ result: VimResult, event: NSEvent) {
         let isVisual = vimHandler.mode == .visual || vimHandler.mode == .visualLine
 
+        defer { checkVimModeChange() }
+
         switch result {
         case .pending:
             // Waiting for more input; do nothing.
@@ -200,9 +208,24 @@ class MarkdownNSTextView: NSTextView {
             undoManager?.redo()
 
         case .repeatLastChange:
-            // Repeat last change is complex; for now, do nothing.
-            // A full implementation would record and replay the last edit.
-            break
+            if let lastResult = vimHandler.lastChangeResult {
+                dispatchVimResult(lastResult, event: event)
+                if let insertText = vimHandler.lastChangeInsertText, !insertText.isEmpty {
+                    dispatchVimResult(.replayInsert(insertText), event: event)
+                }
+            }
+
+        case .operatorTextObject(let op, let textObj, _):
+            executeOperatorTextObject(op, textObject: textObj)
+
+        case .replayInsert(let text):
+            let range = selectedRange()
+            if shouldChangeText(in: range, replacementString: text) {
+                textStorage?.replaceCharacters(in: range, with: text)
+                didChangeText()
+                setSelectedRange(NSRange(location: range.location + text.count, length: 0))
+            }
+            vimHandler.reset()
 
         case .joinLines:
             joinCurrentLineWithNext()
@@ -240,6 +263,14 @@ class MarkdownNSTextView: NSTextView {
         case .searchForward:
             // Search would require a search UI; for now, trigger the find panel.
             performFindPanelAction(nil)
+        }
+    }
+
+    private func checkVimModeChange() {
+        let currentMode = vimHandler.mode
+        if currentMode != lastKnownVimMode {
+            lastKnownVimMode = currentMode
+            onVimModeChanged?(currentMode)
         }
     }
 
@@ -294,6 +325,203 @@ class MarkdownNSTextView: NSTextView {
 
         case .outdent:
             outdentLines(in: range)
+        }
+    }
+
+    private func executeOperatorTextObject(_ op: VimOperator, textObject: VimTextObject) {
+        guard let range = rangeForTextObject(textObject) else { return }
+        guard range.length > 0 else { return }
+
+        switch op {
+        case .delete:
+            yankText(in: range, linewise: false)
+            deleteText(in: range)
+
+        case .change:
+            yankText(in: range, linewise: false)
+            deleteText(in: range)
+
+        case .yank:
+            yankText(in: range, linewise: false)
+
+        case .indent:
+            indentLines(in: range)
+
+        case .outdent:
+            outdentLines(in: range)
+        }
+    }
+
+    private func rangeForTextObject(_ textObject: VimTextObject) -> NSRange? {
+        let nsString = string as NSString
+        let cursorLoc = selectedRange().location
+
+        switch textObject {
+        case .innerWord:
+            return wordRange(at: cursorLoc, in: nsString, around: false)
+        case .aroundWord:
+            return wordRange(at: cursorLoc, in: nsString, around: true)
+        case .inner(let delimiter):
+            return delimiterRange(at: cursorLoc, in: nsString, delimiter: delimiter, around: false)
+        case .around(let delimiter):
+            return delimiterRange(at: cursorLoc, in: nsString, delimiter: delimiter, around: true)
+        }
+    }
+
+    private func wordRange(at pos: Int, in string: NSString, around: Bool) -> NSRange? {
+        guard pos < string.length else { return nil }
+
+        let isWordChar: (unichar) -> Bool = { ch in
+            (ch >= 0x30 && ch <= 0x39) || (ch >= 0x41 && ch <= 0x5A) ||
+            (ch >= 0x61 && ch <= 0x7A) || ch == 0x5F
+        }
+
+        let ch = string.character(at: pos)
+        let isWord = isWordChar(ch)
+        let isWhitespace = ch == 0x20 || ch == 0x09 || ch == 0x0A || ch == 0x0D
+
+        // Find start of word
+        var start = pos
+        while start > 0 {
+            let prev = string.character(at: start - 1)
+            if isWhitespace {
+                if !(prev == 0x20 || prev == 0x09 || prev == 0x0A || prev == 0x0D) { break }
+            } else if isWord {
+                if !isWordChar(prev) { break }
+            } else {
+                let prevIsWhitespace = prev == 0x20 || prev == 0x09 || prev == 0x0A || prev == 0x0D
+                if prevIsWhitespace || isWordChar(prev) { break }
+            }
+            start -= 1
+        }
+
+        // Find end of word
+        var end = pos
+        while end + 1 < string.length {
+            let next = string.character(at: end + 1)
+            if isWhitespace {
+                if !(next == 0x20 || next == 0x09 || next == 0x0A || next == 0x0D) { break }
+            } else if isWord {
+                if !isWordChar(next) { break }
+            } else {
+                let nextIsWhitespace = next == 0x20 || next == 0x09 || next == 0x0A || next == 0x0D
+                if nextIsWhitespace || isWordChar(next) { break }
+            }
+            end += 1
+        }
+
+        if around {
+            // Include trailing whitespace
+            while end + 1 < string.length {
+                let next = string.character(at: end + 1)
+                if next == 0x20 || next == 0x09 {
+                    end += 1
+                } else {
+                    break
+                }
+            }
+        }
+
+        return NSRange(location: start, length: end - start + 1)
+    }
+
+    private func delimiterRange(at pos: Int, in string: NSString, delimiter: Character, around: Bool) -> NSRange? {
+        guard let delimScalar = delimiter.unicodeScalars.first else { return nil }
+        let delimValue = delimScalar.value
+
+        let pairs: [(Character, Character)] = [("(", ")"), ("{", "}"), ("[", "]")]
+
+        // Check if this is a paired delimiter
+        for (open, close) in pairs {
+            if delimiter == open {
+                return pairedDelimiterRange(at: pos, in: string,
+                                            open: open.unicodeScalars.first!.value,
+                                            close: close.unicodeScalars.first!.value,
+                                            around: around)
+            }
+        }
+
+        // Quote-style delimiter: scan both directions
+        // Find the opening delimiter (search backward)
+        var openPos: Int? = nil
+        for i in stride(from: pos, through: 0, by: -1) {
+            if string.character(at: i) == delimValue {
+                // Check it's not escaped
+                if i == 0 || string.character(at: i - 1) != 0x5C { // backslash
+                    openPos = i
+                    break
+                }
+            }
+        }
+
+        guard let open = openPos else { return nil }
+
+        // Find closing delimiter (search forward from after open)
+        let searchStart = (open == pos) ? open + 1 : pos
+        var closePos: Int? = nil
+        for i in searchStart..<string.length {
+            if i == open { continue }
+            if string.character(at: i) == delimValue {
+                if i == 0 || string.character(at: i - 1) != 0x5C {
+                    closePos = i
+                    break
+                }
+            }
+        }
+
+        guard let close = closePos else { return nil }
+
+        if around {
+            return NSRange(location: open, length: close - open + 1)
+        } else {
+            let innerStart = open + 1
+            let innerLen = close - innerStart
+            return innerLen > 0 ? NSRange(location: innerStart, length: innerLen) : NSRange(location: innerStart, length: 0)
+        }
+    }
+
+    private func pairedDelimiterRange(at pos: Int, in string: NSString,
+                                       open: UInt32, close: UInt32, around: Bool) -> NSRange? {
+        // Search backward for opening delimiter
+        var depth = 0
+        var openPos: Int? = nil
+        for i in stride(from: pos, through: 0, by: -1) {
+            let ch = string.character(at: i)
+            if ch == UInt16(close) { depth += 1 }
+            else if ch == UInt16(open) {
+                if depth == 0 {
+                    openPos = i
+                    break
+                }
+                depth -= 1
+            }
+        }
+
+        guard let op = openPos else { return nil }
+
+        // Search forward for closing delimiter
+        depth = 0
+        var closePos: Int? = nil
+        for i in (op + 1)..<string.length {
+            let ch = string.character(at: i)
+            if ch == UInt16(open) { depth += 1 }
+            else if ch == UInt16(close) {
+                if depth == 0 {
+                    closePos = i
+                    break
+                }
+                depth -= 1
+            }
+        }
+
+        guard let cl = closePos else { return nil }
+
+        if around {
+            return NSRange(location: op, length: cl - op + 1)
+        } else {
+            let innerStart = op + 1
+            let innerLen = cl - innerStart
+            return innerLen > 0 ? NSRange(location: innerStart, length: innerLen) : NSRange(location: innerStart, length: 0)
         }
     }
 
@@ -536,7 +764,10 @@ class MarkdownNSTextView: NSTextView {
 
     /// Insert `![](path)` at the current selection / cursor position.
     private func insertMarkdownImageSyntax(_ relativePath: String) {
-        let markdown = "![](\(relativePath))"
+        let encoded = relativePath.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? relativePath
+        let markdown = "![](\(encoded))"
         let insertRange = selectedRange()
         if shouldChangeText(in: insertRange, replacementString: markdown) {
             textStorage?.replaceCharacters(in: insertRange, with: markdown)

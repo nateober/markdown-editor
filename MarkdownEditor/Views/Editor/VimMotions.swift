@@ -119,13 +119,7 @@ final class VimMotionExecutor {
             }
 
         case .wordEnd:
-            // NSTextView doesn't have a direct "word end" motion.
-            // Move word forward to approximate.
-            if extending {
-                textView.moveWordForwardAndModifySelection(nil)
-            } else {
-                textView.moveWordForward(nil)
-            }
+            moveToWordEnd(on: textView, extending: extending)
 
         case .lineStart:
             if extending {
@@ -207,6 +201,71 @@ final class VimMotionExecutor {
                 break
             }
         }
+    }
+
+    private func moveToWordEnd(on textView: NSTextView, extending: Bool) {
+        let string = textView.string as NSString
+        var pos = textView.selectedRange().location
+
+        guard pos < string.length else { return }
+
+        // Move past current character first (vim 'e' from current position)
+        pos += 1
+
+        // Skip whitespace
+        while pos < string.length {
+            let ch = string.character(at: pos)
+            if ch == 0x20 || ch == 0x09 || ch == 0x0A || ch == 0x0D {
+                pos += 1
+            } else {
+                break
+            }
+        }
+
+        guard pos < string.length else {
+            // At end of document
+            let target = string.length > 0 ? string.length - 1 : 0
+            if extending {
+                let currentRange = textView.selectedRange()
+                let newLen = target - currentRange.location + 1
+                textView.setSelectedRange(NSRange(location: currentRange.location, length: max(0, newLen)))
+            } else {
+                textView.setSelectedRange(NSRange(location: target, length: 0))
+            }
+            return
+        }
+
+        // Determine character class at current position
+        let startChar = string.character(at: pos)
+        let isWord = isWordChar(startChar)
+
+        // Advance through same character class
+        while pos + 1 < string.length {
+            let nextChar = string.character(at: pos + 1)
+            let nextIsWhitespace = nextChar == 0x20 || nextChar == 0x09 || nextChar == 0x0A || nextChar == 0x0D
+            if nextIsWhitespace { break }
+            let nextIsWord = isWordChar(nextChar)
+            if nextIsWord != isWord { break }
+            pos += 1
+        }
+
+        // pos is now on the last character of the word
+        if extending {
+            let currentRange = textView.selectedRange()
+            let newLen = pos - currentRange.location + 1
+            textView.setSelectedRange(NSRange(location: currentRange.location, length: max(0, newLen)))
+        } else {
+            textView.setSelectedRange(NSRange(location: pos, length: 0))
+        }
+    }
+
+    private func isWordChar(_ ch: unichar) -> Bool {
+        // Word characters: alphanumeric and underscore
+        if ch >= 0x30 && ch <= 0x39 { return true }  // 0-9
+        if ch >= 0x41 && ch <= 0x5A { return true }  // A-Z
+        if ch >= 0x61 && ch <= 0x7A { return true }  // a-z
+        if ch == 0x5F { return true }                 // _
+        return false
     }
 
     private func moveParagraphBackward(on textView: NSTextView) {
@@ -341,7 +400,7 @@ final class VimMotionExecutor {
 
         guard startLocation < string.length else { return }
 
-        let targetScalar = target.unicodeScalars.first!
+        guard let targetScalar = target.unicodeScalars.first else { return }
         for i in startLocation..<string.length {
             let ch = string.character(at: i)
             if ch == targetScalar.value {

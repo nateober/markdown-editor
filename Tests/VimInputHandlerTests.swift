@@ -510,4 +510,138 @@ struct VimInputHandlerTests {
         let result = handler.handleKey("x")
         #expect(result == .motion(.findChar("x"), count: 2))
     }
+
+    // MARK: - Dot Command
+
+    @Test("x then . repeats deleteChar")
+    func dotRepeatsX() {
+        let handler = VimInputHandler()
+        let first = handler.handleKey("x")
+        #expect(first == .deleteChar(count: 1))
+        let dot = handler.handleKey(".")
+        #expect(dot == .repeatLastChange)
+        #expect(handler.lastChangeResult == .deleteChar(count: 1))
+    }
+
+    @Test("dw then . records operatorMotion")
+    func dotRepeatsDW() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("d")
+        let first = handler.handleKey("w")
+        #expect(first == .operatorMotion(.delete, .wordForward, count: 1))
+        #expect(handler.lastChangeResult == .operatorMotion(.delete, .wordForward, count: 1))
+    }
+
+    @Test("Insert recording captures text")
+    func insertRecording() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("i")
+        _ = handler.handleKey("h")
+        _ = handler.handleKey("i")
+        _ = handler.handleKey("\u{1B}")
+        #expect(handler.lastChangeInsertText == "hi")
+    }
+
+    @Test("r records as last change")
+    func replaceRecords() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("r")
+        let result = handler.handleKey("z")
+        #expect(result == .replaceChar("z"))
+        #expect(handler.lastChangeResult == .replaceChar("z"))
+    }
+
+    // MARK: - Text Objects
+
+    @Test("diw produces operatorTextObject")
+    func diw() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("d")
+        _ = handler.handleKey("i")
+        let result = handler.handleKey("w")
+        #expect(result == .operatorTextObject(.delete, .innerWord, count: 1))
+    }
+
+    @Test("ca\" produces change around quote")
+    func caQuote() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("c")
+        _ = handler.handleKey("a")
+        let result = handler.handleKey("\"")
+        #expect(result == .operatorTextObject(.change, .around("\""), count: 1))
+        #expect(handler.mode == .insert)
+    }
+
+    @Test("yi( produces yank inner paren")
+    func yiParen() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("y")
+        _ = handler.handleKey("i")
+        let result = handler.handleKey("(")
+        #expect(result == .operatorTextObject(.yank, .inner("("), count: 1))
+    }
+
+    @Test("daw produces delete around word")
+    func daw() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("d")
+        _ = handler.handleKey("a")
+        let result = handler.handleKey("w")
+        #expect(result == .operatorTextObject(.delete, .aroundWord, count: 1))
+    }
+
+    @Test("di{ produces delete inner brace")
+    func diBrace() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("d")
+        _ = handler.handleKey("i")
+        let result = handler.handleKey("{")
+        #expect(result == .operatorTextObject(.delete, .inner("{"), count: 1))
+    }
+
+    @Test("da[ produces delete around bracket")
+    func daBracket() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("d")
+        _ = handler.handleKey("a")
+        let result = handler.handleKey("[")
+        #expect(result == .operatorTextObject(.delete, .around("["), count: 1))
+    }
+
+    @Test("ci' produces change inner single quote")
+    func ciSingleQuote() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("c")
+        _ = handler.handleKey("i")
+        let result = handler.handleKey("'")
+        #expect(result == .operatorTextObject(.change, .inner("'"), count: 1))
+        #expect(handler.mode == .insert)
+    }
+
+    @Test("di) is same as di(")
+    func diCloseParen() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("d")
+        _ = handler.handleKey("i")
+        let result = handler.handleKey(")")
+        #expect(result == .operatorTextObject(.delete, .inner("("), count: 1))
+    }
+
+    @Test("dib is same as di(")
+    func dib() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("d")
+        _ = handler.handleKey("i")
+        let result = handler.handleKey("b")
+        #expect(result == .operatorTextObject(.delete, .inner("("), count: 1))
+    }
+
+    @Test("diB is same as di{")
+    func diB() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("d")
+        _ = handler.handleKey("i")
+        let result = handler.handleKey("B")
+        #expect(result == .operatorTextObject(.delete, .inner("{"), count: 1))
+    }
 }

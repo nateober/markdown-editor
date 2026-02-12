@@ -6,7 +6,8 @@ struct ContentView: View {
     @State private var viewMode: ViewMode = .sideBySide
     @State private var previewHTML: String = ""
     @State private var debounceTask: Task<Void, Never>?
-    @State private var cursorPosition: Int = 0
+    @State private var cursorLine: Int = 1
+    @State private var cursorColumn: Int = 1
     @State private var vimMode: VimMode = .normal
     @State private var folderModel = FolderTreeModel()
     @State private var isSidebarVisible: Bool = false
@@ -20,7 +21,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: sidebarVisibility) {
             FolderSidebarView(model: folderModel)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 350)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 400)
         } detail: {
             editorContent
         }
@@ -80,7 +81,14 @@ struct ContentView: View {
                 htmlBody: previewHTML,
                 baseURL: nil,
                 fontSize: fontSize,
-                vimEnabled: vimModeEnabled
+                vimEnabled: vimModeEnabled,
+                onCursorChange: { line, column in
+                    cursorLine = line
+                    cursorColumn = column
+                },
+                onVimModeChange: { mode in
+                    vimMode = mode
+                }
             )
 
             Divider()
@@ -88,7 +96,8 @@ struct ContentView: View {
             StatusBarView(
                 text: document.text,
                 vimMode: vimMode,
-                cursorPosition: cursorPosition,
+                line: cursorLine,
+                column: cursorColumn,
                 vimEnabled: vimModeEnabled
             )
         }
@@ -107,10 +116,25 @@ struct ContentView: View {
     }
 
     private func openFileInDocument(_ url: URL) {
-        guard let data = try? Data(contentsOf: url),
-              let content = String(data: data, encoding: .utf8) else {
-            return
+        do {
+            let data = try Data(contentsOf: url)
+            guard let content = String(data: data, encoding: .utf8) else {
+                showFileLoadError("The file could not be read as text (it may be a binary file).", url: url)
+                return
+            }
+            document.text = content
+        } catch {
+            showFileLoadError(error.localizedDescription, url: url)
         }
-        document.text = content
+    }
+
+    private func showFileLoadError(_ message: String, url: URL) {
+        guard let window = NSApp.keyWindow else { return }
+        let alert = NSAlert()
+        alert.messageText = "Failed to Open File"
+        alert.informativeText = "Could not open \"\(url.lastPathComponent)\": \(message)"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window, completionHandler: nil)
     }
 }

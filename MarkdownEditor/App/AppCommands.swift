@@ -146,7 +146,17 @@ struct AppCommands: Commands {
         panel.canCreateDirectories = false
 
         if panel.runModal() == .OK, let url = panel.url {
-            NotificationCenter.default.post(name: .openFolder, object: url)
+            // Ensure a document window exists to receive the notification.
+            // In a DocumentGroup app, ContentView only exists when a document is open.
+            if NSApp.keyWindow == nil || NSApp.windows.filter({ $0.isVisible }).isEmpty {
+                try? NSDocumentController.shared.openUntitledDocumentAndDisplay(true)
+                // Small delay to let the window set up its notification listener
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    NotificationCenter.default.post(name: .openFolder, object: url)
+                }
+            } else {
+                NotificationCenter.default.post(name: .openFolder, object: url)
+            }
         }
     }
 

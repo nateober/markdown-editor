@@ -3,7 +3,8 @@ import SwiftUI
 struct StatusBarView: View {
     let text: String
     let vimMode: VimMode
-    let cursorPosition: Int
+    let line: Int
+    let column: Int
     var vimEnabled: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
@@ -18,8 +19,7 @@ struct StatusBarView: View {
             Spacer()
 
             // Line:Column
-            let position = text.lineAndColumn(at: cursorPosition)
-            Text("Ln \(position.line), Col \(position.column)")
+            Text("Ln \(line), Col \(column)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
 

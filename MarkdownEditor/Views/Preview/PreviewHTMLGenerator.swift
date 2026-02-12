@@ -9,6 +9,7 @@ final class PreviewHTMLGenerator {
 
     func generateFullDocument(from markdown: String, darkMode: Bool) -> String {
         let body = generateBody(from: markdown)
+        let themeCSS = darkMode ? Self.darkCSS : Self.lightCSS
         return """
         <!DOCTYPE html>
         <html>
@@ -22,6 +23,7 @@ final class PreviewHTMLGenerator {
                     margin: 0 auto;
                     padding: 24px;
                 }
+                \(themeCSS)
             </style>
         </head>
         <body>
@@ -30,4 +32,56 @@ final class PreviewHTMLGenerator {
         </html>
         """
     }
+
+    // MARK: - Inlined CSS from preview stylesheets
+
+    private static let lightCSS = """
+        body { color: #24292e; background-color: #ffffff; }
+        h1, h2, h3, h4, h5, h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; line-height: 1.25; }
+        h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        h3 { font-size: 1.25em; }
+        p { margin-top: 0; margin-bottom: 16px; }
+        a { color: #0366d6; text-decoration: none; }
+        code { font-family: "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 85%; background-color: rgba(27,31,35,0.05); border-radius: 3px; padding: 0.2em 0.4em; }
+        pre { background-color: #f6f8fa; border-radius: 6px; padding: 16px; overflow: auto; line-height: 1.45; }
+        pre code { background: none; padding: 0; font-size: 100%; }
+        blockquote { margin: 0 0 16px 0; padding: 0 16px; color: #6a737d; border-left: 4px solid #dfe2e5; }
+        table { border-collapse: collapse; margin-bottom: 16px; width: 100%; }
+        th, td { padding: 6px 13px; border: 1px solid #dfe2e5; }
+        th { font-weight: 600; background-color: #f6f8fa; }
+        tr:nth-child(2n) { background-color: #f6f8fa; }
+        img { max-width: 100%; height: auto; }
+        hr { border: none; border-top: 2px solid #eaecef; margin: 24px 0; }
+        ul, ol { padding-left: 2em; margin-bottom: 16px; }
+        li + li { margin-top: 0.25em; }
+        input[type="checkbox"] { margin-right: 0.5em; }
+        del { color: #6a737d; }
+        sup { font-size: 75%; }
+    """
+
+    private static let darkCSS = """
+        body { color: #c9d1d9; background-color: #0d1117; }
+        h1, h2, h3, h4, h5, h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; line-height: 1.25; color: #e6edf3; }
+        h1 { font-size: 2em; border-bottom: 1px solid #21262d; padding-bottom: 0.3em; }
+        h2 { font-size: 1.5em; border-bottom: 1px solid #21262d; padding-bottom: 0.3em; }
+        h3 { font-size: 1.25em; }
+        p { margin-top: 0; margin-bottom: 16px; }
+        a { color: #58a6ff; text-decoration: none; }
+        code { font-family: "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 85%; background-color: rgba(110,118,129,0.2); border-radius: 3px; padding: 0.2em 0.4em; }
+        pre { background-color: #161b22; border-radius: 6px; padding: 16px; overflow: auto; line-height: 1.45; }
+        pre code { background: none; padding: 0; font-size: 100%; }
+        blockquote { margin: 0 0 16px 0; padding: 0 16px; color: #8b949e; border-left: 4px solid #3b434b; }
+        table { border-collapse: collapse; margin-bottom: 16px; width: 100%; }
+        th, td { padding: 6px 13px; border: 1px solid #30363d; }
+        th { font-weight: 600; background-color: #161b22; }
+        tr:nth-child(2n) { background-color: #161b22; }
+        img { max-width: 100%; height: auto; }
+        hr { border: none; border-top: 2px solid #21262d; margin: 24px 0; }
+        ul, ol { padding-left: 2em; margin-bottom: 16px; }
+        li + li { margin-top: 0.25em; }
+        input[type="checkbox"] { margin-right: 0.5em; }
+        del { color: #8b949e; }
+        sup { font-size: 75%; }
+    """
 }

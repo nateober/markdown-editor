@@ -34,6 +34,16 @@ enum VimOperator: Equatable, Sendable {
     case outdent
 }
 
+// MARK: - VimTextObject
+
+/// Describes a text object for operator+textobject commands (e.g. diw, ca").
+enum VimTextObject: Equatable, Sendable {
+    case innerWord
+    case aroundWord
+    case inner(Character)  // i", i(, i{, i[, i', i`
+    case around(Character) // a", a(, a{, a[, a', a`
+}
+
 // MARK: - VimResult
 
 /// Describes what the editor should do in response to a key input.
@@ -100,6 +110,12 @@ enum VimResult: Equatable, Sendable {
 
     /// Begin forward search.
     case searchForward
+
+    /// Execute an operator on a text object.
+    case operatorTextObject(VimOperator, VimTextObject, count: Int)
+
+    /// Replay previously inserted text (used by dot command).
+    case replayInsert(String)
 }
 
 // MARK: - VimInputHandler
@@ -115,6 +131,7 @@ final class VimInputHandler {
         case awaitingMotion(VimOperator)
         case awaitingChar(AwaitingCharReason)
         case awaitingSecondKey(SecondKeyContext)
+        case awaitingTextObject(VimOperator, Bool) // Bool = isInner
     }
 
     private enum AwaitingCharReason: Equatable, Sendable {
@@ -131,6 +148,19 @@ final class VimInputHandler {
     private var _state: InputState = .idle
     private var _countAccumulator: Int = 0
     private var _pendingOperator: VimOperator? = nil
+
+    // MARK: - Dot Command State
+
+    private var _lastChangeResult: VimResult?
+    private var _lastChangeInsertText: String?
+    private var _isRecordingInsert: Bool = false
+    private var _insertBuffer: String = ""
+
+    /// The result of the last change (for dot command).
+    var lastChangeResult: VimResult? { _lastChangeResult }
+
+    /// The text inserted during the last change (for dot command).
+    var lastChangeInsertText: String? { _lastChangeInsertText }
 
     // MARK: - Public API
 
@@ -169,7 +199,15 @@ final class VimInputHandler {
             _state = .idle
             _countAccumulator = 0
             _pendingOperator = nil
+            if _isRecordingInsert {
+                _lastChangeInsertText = _insertBuffer
+                _isRecordingInsert = false
+            }
             return .modeChange(.normal)
+        }
+        // Record insert text for dot command
+        if _isRecordingInsert {
+            _insertBuffer.append(key)
         }
         // All other keys pass through in insert mode
         return .passthrough
@@ -195,13 +233,17 @@ final class VimInputHandler {
         switch key {
         case "d", "x":
             _mode = .normal
-            return .operatorMotion(.delete, .right, count: 1)
+            let result: VimResult = .operatorMotion(.delete, .right, count: 1)
+            recordChange(result, entersInsert: false)
+            return result
         case "y":
             _mode = .normal
             return .operatorMotion(.yank, .right, count: 1)
         case "c":
             _mode = .insert
-            return .operatorMotion(.change, .right, count: 1)
+            let result: VimResult = .operatorMotion(.change, .right, count: 1)
+            recordChange(result, entersInsert: true)
+            return result
         default:
             return .pending
         }
@@ -219,19 +261,27 @@ final class VimInputHandler {
                 let count = consumeCount()
                 if let op = _pendingOperator {
                     _pendingOperator = nil
-                    return .operatorMotion(op, .findChar(key), count: count)
+                    let result: VimResult = .operatorMotion(op, .findChar(key), count: count)
+                    recordChange(result, entersInsert: op == .change)
+                    if op == .change { _mode = .insert }
+                    return result
                 }
                 return .motion(.findChar(key), count: count)
             case .till:
                 let count = consumeCount()
                 if let op = _pendingOperator {
                     _pendingOperator = nil
-                    return .operatorMotion(op, .tillChar(key), count: count)
+                    let result: VimResult = .operatorMotion(op, .tillChar(key), count: count)
+                    recordChange(result, entersInsert: op == .change)
+                    if op == .change { _mode = .insert }
+                    return result
                 }
                 return .motion(.tillChar(key), count: count)
             case .replace:
                 _ = consumeCount()
-                return .replaceChar(key)
+                let result: VimResult = .replaceChar(key)
+                recordChange(result, entersInsert: false)
+                return result
             }
 
         case .awaitingSecondKey(let context):
@@ -242,7 +292,10 @@ final class VimInputHandler {
                     let count = consumeCount()
                     if let op = _pendingOperator {
                         _pendingOperator = nil
-                        return .operatorMotion(op, .documentStart, count: count)
+                        let result: VimResult = .operatorMotion(op, .documentStart, count: count)
+                        recordChange(result, entersInsert: op == .change)
+                        if op == .change { _mode = .insert }
+                        return result
                     }
                     return .motion(.documentStart, count: count)
                 }
@@ -251,14 +304,40 @@ final class VimInputHandler {
                 return .pending
             }
 
+        case .awaitingTextObject(let op, let isInner):
+            _state = .idle
+            _pendingOperator = nil
+            let count = consumeCount()
+            if let textObj = textObjectForKey(key, isInner: isInner) {
+                let result: VimResult = .operatorTextObject(op, textObj, count: count)
+                recordChange(result, entersInsert: op == .change)
+                if op == .change { _mode = .insert }
+                return result
+            }
+            // Unknown text object key; reset
+            return .pending
+
         case .awaitingMotion(let op):
+            // Check for text object (i/a after operator)
+            if key == "i" {
+                _state = .awaitingTextObject(op, true)
+                return .pending
+            }
+            if key == "a" {
+                _state = .awaitingTextObject(op, false)
+                return .pending
+            }
+
             // Check for doubled operator (dd, yy, cc, >>, <<)
             let opChar = charForOperator(op)
             if key == opChar {
                 _state = .idle
                 _pendingOperator = nil
                 let count = consumeCount()
-                return .operatorLine(op, count: count)
+                let result: VimResult = .operatorLine(op, count: count)
+                recordChange(result, entersInsert: op == .change)
+                if op == .change { _mode = .insert }
+                return result
             }
 
             // Check for motion after operator
@@ -276,8 +355,7 @@ final class VimInputHandler {
             }
 
             // Count within operator (e.g., d2w)
-            if key.isNumber && key != "0" {
-                let digit = Int(String(key))!
+            if key.isNumber && key != "0", let digit = Int(String(key)) {
                 _countAccumulator = _countAccumulator * 10 + digit
                 return .pending
             }
@@ -290,7 +368,10 @@ final class VimInputHandler {
                 _state = .idle
                 _pendingOperator = nil
                 let count = consumeCount()
-                return .operatorMotion(op, motion, count: count)
+                let result: VimResult = .operatorMotion(op, motion, count: count)
+                recordChange(result, entersInsert: op == .change)
+                if op == .change { _mode = .insert }
+                return result
             }
 
             // Unknown motion; reset
@@ -304,8 +385,7 @@ final class VimInputHandler {
         }
 
         // Count prefix accumulation
-        if key.isNumber && key != "0" && _pendingOperator == nil {
-            let digit = Int(String(key))!
+        if key.isNumber && key != "0" && _pendingOperator == nil, let digit = Int(String(key)) {
             _countAccumulator = _countAccumulator * 10 + digit
             return .pending
         }
@@ -319,27 +399,39 @@ final class VimInputHandler {
         case "i":
             _mode = .insert
             _ = consumeCount()
-            return .modeChange(.insert)
+            let result: VimResult = .modeChange(.insert)
+            recordChange(result, entersInsert: true)
+            return result
         case "a":
             _mode = .insert
             _ = consumeCount()
-            return .insertAfterCursor
+            let result: VimResult = .insertAfterCursor
+            recordChange(result, entersInsert: true)
+            return result
         case "A":
             _mode = .insert
             _ = consumeCount()
-            return .insertAtEndOfLine
+            let result: VimResult = .insertAtEndOfLine
+            recordChange(result, entersInsert: true)
+            return result
         case "I":
             _mode = .insert
             _ = consumeCount()
-            return .insertAtLineStart
+            let result: VimResult = .insertAtLineStart
+            recordChange(result, entersInsert: true)
+            return result
         case "o":
             _mode = .insert
             _ = consumeCount()
-            return .openLineBelow
+            let result: VimResult = .openLineBelow
+            recordChange(result, entersInsert: true)
+            return result
         case "O":
             _mode = .insert
             _ = consumeCount()
-            return .openLineAbove
+            let result: VimResult = .openLineAbove
+            recordChange(result, entersInsert: true)
+            return result
         case "v":
             _mode = .visual
             _ = consumeCount()
@@ -395,8 +487,6 @@ final class VimInputHandler {
             return .pending
         }
         if key == "t" {
-            // Note: "t" is also recognized as a motion key (tillChar) but only when awaiting a char.
-            // In idle normal mode, "t" enters awaitingChar for till.
             _state = .awaitingChar(.till)
             return .pending
         }
@@ -423,22 +513,32 @@ final class VimInputHandler {
         switch key {
         case "x":
             let count = consumeCount()
-            return .deleteChar(count: count)
+            let result: VimResult = .deleteChar(count: count)
+            recordChange(result, entersInsert: false)
+            return result
         case "X":
             let count = consumeCount()
-            return .deleteCharBefore(count: count)
+            let result: VimResult = .deleteCharBefore(count: count)
+            recordChange(result, entersInsert: false)
+            return result
         case "p":
             _ = consumeCount()
-            return .pasteAfter
+            let result: VimResult = .pasteAfter
+            recordChange(result, entersInsert: false)
+            return result
         case "P":
             _ = consumeCount()
-            return .pasteBefore
+            let result: VimResult = .pasteBefore
+            recordChange(result, entersInsert: false)
+            return result
         case "u":
             _ = consumeCount()
             return .undo
         case "J":
             _ = consumeCount()
-            return .joinLines
+            let result: VimResult = .joinLines
+            recordChange(result, entersInsert: false)
+            return result
         case ".":
             _ = consumeCount()
             return .repeatLastChange
@@ -451,6 +551,42 @@ final class VimInputHandler {
 
         // Not handled
         return .pending
+    }
+
+    // MARK: - Dot Command Recording
+
+    private func recordChange(_ result: VimResult, entersInsert: Bool) {
+        _lastChangeResult = result
+        if entersInsert {
+            _isRecordingInsert = true
+            _insertBuffer = ""
+            _lastChangeInsertText = nil
+        } else {
+            _lastChangeInsertText = nil
+        }
+    }
+
+    // MARK: - Text Object Helpers
+
+    private func textObjectForKey(_ key: Character, isInner: Bool) -> VimTextObject? {
+        switch key {
+        case "w":
+            return isInner ? .innerWord : .aroundWord
+        case "\"":
+            return isInner ? .inner("\"") : .around("\"")
+        case "'":
+            return isInner ? .inner("'") : .around("'")
+        case "`":
+            return isInner ? .inner("`") : .around("`")
+        case "(", ")", "b":
+            return isInner ? .inner("(") : .around("(")
+        case "{", "}", "B":
+            return isInner ? .inner("{") : .around("{")
+        case "[", "]":
+            return isInner ? .inner("[") : .around("[")
+        default:
+            return nil
+        }
     }
 
     // MARK: - Helpers

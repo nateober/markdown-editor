@@ -26,6 +26,17 @@ class MarkdownTextStorage: NSTextStorage {
         endEditing()
     }
 
+    func rehighlight() {
+        guard length > 0 else { return }
+        let theme = HighlightTheme.current()
+        let fullRange = NSRange(location: 0, length: length)
+        beginEditing()
+        backing.setAttributes(theme.defaultStyle.attributes, range: fullRange)
+        highlighter.highlight(in: backing, range: fullRange, theme: theme)
+        edited(.editedAttributes, range: fullRange, changeInLength: 0)
+        endEditing()
+    }
+
     override func processEditing() {
         let theme = HighlightTheme.current()
 
