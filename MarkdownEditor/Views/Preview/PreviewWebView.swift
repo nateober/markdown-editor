@@ -2,6 +2,24 @@ import SwiftUI
 import WebKit
 
 struct PreviewWebView: NSViewRepresentable {
+    private static let resourceBundle: Bundle = {
+        let bundleName = "MarkdownEditor_MarkdownEditor"
+        // SPM's Bundle.module checks Bundle.main.bundleURL (the .app root), which fails
+        // code signing. Check Contents/Resources/ where the build script places it.
+        let candidates = [
+            Bundle.main.bundleURL.appendingPathComponent(bundleName + ".bundle"),
+            Bundle.main.resourceURL?.appendingPathComponent(bundleName + ".bundle"),
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/" + bundleName + ".bundle"),
+        ].compactMap { $0 }
+        for candidate in candidates {
+            if let bundle = Bundle(url: candidate) {
+                return bundle
+            }
+        }
+        // Fall back to SPM's Bundle.module (works during swift build/test)
+        return Bundle.module
+    }()
+
     let htmlBody: String
     let baseURL: URL?
 
@@ -19,7 +37,7 @@ struct PreviewWebView: NSViewRepresentable {
         webView.setValue(false, forKey: "drawsBackground")
 
         // Load the preview template from bundle resources
-        if let templateURL = Bundle.module.url(forResource: "preview", withExtension: "html", subdirectory: "Resources") {
+        if let templateURL = Self.resourceBundle.url(forResource: "preview", withExtension: "html", subdirectory: "Resources") {
             webView.loadFileURL(templateURL, allowingReadAccessTo: templateURL.deletingLastPathComponent())
         } else {
             // Fallback: minimal inline template

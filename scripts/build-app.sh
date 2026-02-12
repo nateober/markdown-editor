@@ -38,7 +38,7 @@ cp "$BUILD_DIR/MarkdownEditor" "$MACOS/MarkdownEditor"
 # Copy Info.plist
 cp "$PROJECT_DIR/MarkdownEditor/App/Info.plist" "$CONTENTS/Info.plist"
 
-# Copy resource bundle
+# Copy resource bundle into Contents/Resources/
 cp -R "$BUILD_DIR/MarkdownEditor_MarkdownEditor.bundle" "$RESOURCES/"
 
 # Copy app icon if it exists
