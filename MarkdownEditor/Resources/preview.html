@@ -53,12 +53,16 @@
         }
 
         function renderExtensions() {
-            // 1. KaTeX auto-render: render math in $...$ and $$...$$ delimiters
+            var content = document.getElementById('content');
+
+            // 1. KaTeX math rendering.
+            //    Display math ($$...$$, \[...\]) and LaTeX-style inline (\(...\))
+            //    go through auto-render. Single-$ inline is handled separately
+            //    with a prose guard so dollar amounts ($5, $10) are NOT eaten.
             try {
-                renderMathInElement(document.getElementById('content'), {
+                renderMathInElement(content, {
                     delimiters: [
                         { left: '$$', right: '$$', display: true },
-                        { left: '$', right: '$', display: false },
                         { left: '\\(', right: '\\)', display: false },
                         { left: '\\[', right: '\\]', display: true }
                     ],
@@ -66,6 +70,11 @@
                 });
             } catch (e) {
                 console.warn('KaTeX rendering error:', e);
+            }
+            try {
+                renderGuardedInlineMath(content);
+            } catch (e) {
+                console.warn('Inline math rendering error:', e);
             }
 
             // 2. highlight.js: syntax-highlight all code blocks
@@ -103,6 +112,63 @@
             } catch (e) {
                 console.warn('Mermaid rendering error:', e);
             }
+        }
+
+        // Render single-$ inline math, but only when a $...$ span looks like
+        // math rather than prose containing dollar amounts. A $ starts math
+        // only when the next char is non-space and non-digit; the closing $
+        // must be preceded by a non-space char. So "$5 and $10" stays literal
+        // while "$x^2 + y^2$" renders. Code/pre/script/style and already
+        // rendered .katex spans are skipped.
+        function renderGuardedInlineMath(root) {
+            var INLINE = /\$(?=\S)(?!\d)((?:[^$\\\n]|\\.)*?[^\s$])\$/g;
+            var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+                acceptNode: function (node) {
+                    if (!node.nodeValue || node.nodeValue.indexOf('$') === -1) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    for (var p = node.parentNode; p && p !== root; p = p.parentNode) {
+                        var tag = p.tagName;
+                        if (tag === 'CODE' || tag === 'PRE' || tag === 'SCRIPT' || tag === 'STYLE') {
+                            return NodeFilter.FILTER_REJECT;
+                        }
+                        if (p.classList && p.classList.contains('katex')) {
+                            return NodeFilter.FILTER_REJECT;
+                        }
+                    }
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            });
+            var targets = [];
+            var n;
+            while ((n = walker.nextNode())) { targets.push(n); }
+
+            targets.forEach(function (textNode) {
+                var text = textNode.nodeValue;
+                INLINE.lastIndex = 0;
+                var m = INLINE.exec(text);
+                if (m === null) { return; }
+
+                var frag = document.createDocumentFragment();
+                var last = 0;
+                do {
+                    if (m.index > last) {
+                        frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+                    }
+                    var span = document.createElement('span');
+                    try {
+                        katex.render(m[1], span, { throwOnError: false, displayMode: false });
+                    } catch (e) {
+                        span.textContent = m[0];
+                    }
+                    frag.appendChild(span);
+                    last = m.index + m[0].length;
+                } while ((m = INLINE.exec(text)) !== null);
+                if (last < text.length) {
+                    frag.appendChild(document.createTextNode(text.slice(last)));
+                }
+                textNode.parentNode.replaceChild(frag, textNode);
+            });
         }
 
         function setTheme(theme) {
