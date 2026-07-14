@@ -6,3 +6,4 @@
 xcuserdata/
 DerivedData/
 *.app
+.claude/settings.local.json
