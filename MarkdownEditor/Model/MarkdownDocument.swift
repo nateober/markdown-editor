@@ -13,18 +13,26 @@ final class MarkdownDocument: ReferenceFileDocument {
 
     convenience init(data: Data) throws {
         self.init()
-        guard let string = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        self.text = string
+        self.text = try Self.decode(data)
     }
 
     required init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents,
-              let string = String(data: data, encoding: .utf8) else {
+        guard let data = configuration.file.regularFileContents else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        self.text = string
+        self.text = try Self.decode(data)
+    }
+
+    private static func decode(_ data: Data) throws -> String {
+        guard let string = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        // Strip a leading UTF-8 BOM (common in Windows-authored files); left in
+        // place it breaks parsing of the first line (e.g. a leading heading).
+        if string.hasPrefix("\u{FEFF}") {
+            return String(string.dropFirst())
+        }
+        return string
     }
 
     func snapshot(contentType: UTType) throws -> Data {

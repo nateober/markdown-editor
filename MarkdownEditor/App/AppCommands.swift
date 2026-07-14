@@ -1,10 +1,25 @@
 import SwiftUI
 import AppKit
 
-/// Notification posted when a folder is selected via the Open Folder menu command.
-/// The notification's object is the selected folder URL.
-extension Notification.Name {
-    static let openFolder = Notification.Name("com.markdownEditor.openFolder")
+/// One-shot hand-off for Open Folder when no document window is focused:
+/// AppCommands stashes the URL, opens an untitled document, and the new
+/// window's ContentView consumes it in onAppear. Avoids broadcasting a
+/// notification every window would react to (and the timing race of
+/// posting before the new window subscribes).
+enum FolderOpenRequest {
+    static var pendingURL: URL?
+}
+
+// MARK: - FocusedValue for Open Folder
+
+/// Action exposed by the focused document window so the Open Folder menu
+/// command targets exactly that window's sidebar.
+struct OpenFolderAction {
+    let run: (URL) -> Void
+}
+
+struct OpenFolderActionKey: FocusedValueKey {
+    typealias Value = OpenFolderAction
 }
 
 // MARK: - FocusedValue for Document Text
@@ -43,6 +58,11 @@ extension FocusedValues {
         get { self[SidebarVisibilityKey.self] }
         set { self[SidebarVisibilityKey.self] = newValue }
     }
+
+    var openFolderAction: OpenFolderAction? {
+        get { self[OpenFolderActionKey.self] }
+        set { self[OpenFolderActionKey.self] = newValue }
+    }
 }
 
 /// Custom menu commands for the Markdown Editor app.
@@ -51,6 +71,7 @@ struct AppCommands: Commands {
     @FocusedValue(\.documentText) var documentText
     @FocusedValue(\.viewMode) var viewMode
     @FocusedValue(\.sidebarVisible) var sidebarVisible
+    @FocusedValue(\.openFolderAction) var openFolderAction
 
     private let exportService = ExportService()
 
@@ -146,16 +167,15 @@ struct AppCommands: Commands {
         panel.canCreateDirectories = false
 
         if panel.runModal() == .OK, let url = panel.url {
-            // Ensure a document window exists to receive the notification.
-            // In a DocumentGroup app, ContentView only exists when a document is open.
-            if NSApp.keyWindow == nil || NSApp.windows.filter({ $0.isVisible }).isEmpty {
-                try? NSDocumentController.shared.openUntitledDocumentAndDisplay(true)
-                // Small delay to let the window set up its notification listener
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    NotificationCenter.default.post(name: .openFolder, object: url)
-                }
+            if let action = openFolderAction {
+                // A document window is focused: open the folder in it directly.
+                action.run(url)
             } else {
-                NotificationCenter.default.post(name: .openFolder, object: url)
+                // No focused document window (none open, or Settings has
+                // focus): stash the URL and open an untitled document whose
+                // ContentView consumes it in onAppear.
+                FolderOpenRequest.pendingURL = url
+                try? NSDocumentController.shared.openUntitledDocumentAndDisplay(true)
             }
         }
     }

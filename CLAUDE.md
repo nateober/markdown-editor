@@ -67,7 +67,7 @@ Preview uses a `WKWebView` loading bundled `Resources/preview.html`:
 
 - **PreviewWebView** (`Views/Preview/PreviewWebView.swift`) - `NSViewRepresentable` wrapping `WKWebView`; calls `updateContent(html)` JS function on updates
 - **PreviewHTMLGenerator** (`Views/Preview/PreviewHTMLGenerator.swift`) - Converts markdown to HTML body via `MarkdownParser`, also generates full standalone HTML documents for export
-- **MarkdownParser** (`Services/MarkdownParser.swift`) - Wraps `libcmark_gfm` C library for GFM-to-HTML conversion with table, strikethrough, tasklist, autolink, and footnote extensions. Strips YAML front matter before parsing
+- **MarkdownParser** (`Services/MarkdownParser.swift`) - Wraps `libcmark_gfm` C library for GFM-to-HTML conversion with table, strikethrough, tasklist, autolink, and tagfilter extensions (plus footnotes via `CMARK_OPT_FOOTNOTES`). The tagfilter extension is load-bearing: it neutralizes `<script>`/`<iframe>` etc. that `CMARK_OPT_UNSAFE` would otherwise pass through into the preview and exports. Strips YAML front matter before parsing
 
 Bundled JS libraries in `Resources/`: KaTeX (math), Mermaid (diagrams), highlight.js (code syntax)
 
@@ -91,7 +91,7 @@ Three view modes (`Model/ViewMode.swift`): sideBySide, editorOnly, previewOnly. 
 
 ### Folder Sidebar
 
-`FolderSidebarView` + `FolderTreeModel` + `FileNode` provide a file browser for markdown directories. `FileWatcher` monitors the filesystem for external changes. The sidebar is toggled via Cmd+\ and opened via Cmd+Shift+O.
+`FolderSidebarView` + `FolderTreeModel` + `FileNode` provide a file browser for markdown directories. `FileWatcher` (FSEvents-based, recursive, fires on the main queue) monitors the filesystem for external changes; tree rebuilds run off the main thread in `FolderTreeModel.refresh()`. Clicking a file opens it as its own document via the SwiftUI `openDocument` environment action (never by overwriting the current document's text — that would corrupt the file association). The sidebar is toggled via Cmd+\ and opened via Cmd+Shift+O.
 
 ## Dependencies
 
@@ -104,4 +104,4 @@ Three view modes (`Model/ViewMode.swift`): sideBySide, editorOnly, previewOnly. 
 - Menu commands communicate with document windows through `@FocusedValue` keys defined in `AppCommands.swift`
 - The preview update is debounced at 300ms in `ContentView.schedulePreviewUpdate`
 - `MarkdownTextStorage.processEditing()` modifies `backing` directly (not through `setAttributes`) to avoid infinite recursion
-- Folder open uses `NotificationCenter` (`Notification.Name.openFolder`) to bridge between `AppCommands` and `ContentView`
+- Folder open targets the focused window via `@FocusedValue(\.openFolderAction)`; when no document window is focused, `FolderOpenRequest.pendingURL` hands the URL to a freshly opened untitled document's `ContentView.onAppear`

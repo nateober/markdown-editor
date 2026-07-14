@@ -20,7 +20,7 @@ final class ExportService {
             ) else { return }
 
             do {
-                let data = try await pdfExporter.exportPDF(from: markdown, darkMode: darkMode)
+                let data = try await pdfExporter.exportPDF(from: markdown, darkMode: darkMode, baseURL: currentDocumentFolder())
                 try data.write(to: url, options: .atomic)
             } catch {
                 showError(error)
@@ -56,7 +56,7 @@ final class ExportService {
         ) else { return }
 
         do {
-            let data = try docxExporter.exportDOCX(from: markdown)
+            let data = try docxExporter.exportDOCX(from: markdown, baseURL: currentDocumentFolder())
             try data.write(to: url, options: .atomic)
         } catch {
             showError(error)
@@ -64,6 +64,12 @@ final class ExportService {
     }
 
     // MARK: - Private Helpers
+
+    /// Folder of the frontmost document, used as the base URL so relative
+    /// image paths (e.g. "notes_images/img.png") resolve during export.
+    private func currentDocumentFolder() -> URL? {
+        NSDocumentController.shared.currentDocument?.fileURL?.deletingLastPathComponent()
+    }
 
     private func presentSavePanel(title: String, fileType: String, defaultName: String) -> URL? {
         let panel = NSSavePanel()

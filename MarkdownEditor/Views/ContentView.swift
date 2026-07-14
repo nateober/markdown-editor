@@ -16,6 +16,8 @@ struct ContentView: View {
     @AppStorage("vimModeEnabled") private var vimModeEnabled: Bool = false
     @AppStorage("defaultViewMode") private var defaultViewModeRawValue: String = ViewMode.sideBySide.rawValue
 
+    @Environment(\.openDocument) private var openDocument
+
     private let htmlGenerator = PreviewHTMLGenerator()
 
     var body: some View {
@@ -46,15 +48,15 @@ struct ContentView: View {
                 viewMode = mode
             }
             previewHTML = htmlGenerator.generateBody(from: document.text)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openFolder)) { notification in
-            if let url = notification.object as? URL {
-                folderModel.loadFolder(at: url)
-                isSidebarVisible = true
+            // Consume a folder-open request handed off by AppCommands when no
+            // document window was focused (this window was created for it).
+            if let url = FolderOpenRequest.pendingURL {
+                FolderOpenRequest.pendingURL = nil
+                loadFolder(url)
             }
         }
-        .onChange(of: folderModel.selectedFileURL) { _, newURL in
-            if let url = newURL {
+        .onChange(of: folderModel.openRequestCount) { _, _ in
+            if let url = folderModel.selectedFileURL {
                 openFileInDocument(url)
             }
         }
@@ -62,6 +64,9 @@ struct ContentView: View {
         .focusedValue(\.documentText, document.text)
         .focusedValue(\.viewMode, $viewMode)
         .focusedValue(\.sidebarVisible, $isSidebarVisible)
+        .focusedValue(\.openFolderAction, OpenFolderAction { url in
+            loadFolder(url)
+        })
     }
 
     private var sidebarVisibility: Binding<NavigationSplitViewVisibility> {
@@ -115,16 +120,22 @@ struct ContentView: View {
         }
     }
 
+    private func loadFolder(_ url: URL) {
+        folderModel.loadFolder(at: url)
+        isSidebarVisible = true
+    }
+
     private func openFileInDocument(_ url: URL) {
-        do {
-            let data = try Data(contentsOf: url)
-            guard let content = String(data: data, encoding: .utf8) else {
-                showFileLoadError("The file could not be read as text (it may be a binary file).", url: url)
-                return
+        // Open through the DocumentGroup machinery so the file gets its own
+        // document (and window/tab) with the correct file association.
+        // Overwriting document.text in place would discard the current
+        // document's unsaved edits and leave Cmd+S pointed at the OLD file.
+        Task { @MainActor in
+            do {
+                try await openDocument(at: url)
+            } catch {
+                showFileLoadError(error.localizedDescription, url: url)
             }
-            document.text = content
-        } catch {
-            showFileLoadError(error.localizedDescription, url: url)
         }
     }
 

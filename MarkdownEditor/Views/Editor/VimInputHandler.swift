@@ -72,8 +72,8 @@ enum VimResult: Equatable, Sendable {
     /// Delete character before cursor (X).
     case deleteCharBefore(count: Int)
 
-    /// Replace character under cursor with given character (r{char}).
-    case replaceChar(Character)
+    /// Replace character(s) under cursor with given character (r{char}, 3r{char}).
+    case replaceChar(Character, count: Int)
 
     /// Paste after cursor.
     case pasteAfter
@@ -147,6 +147,7 @@ final class VimInputHandler {
     private var _mode: VimMode = .normal
     private var _state: InputState = .idle
     private var _countAccumulator: Int = 0
+    private var _operatorCount: Int = 0
     private var _pendingOperator: VimOperator? = nil
 
     // MARK: - Dot Command State
@@ -188,6 +189,7 @@ final class VimInputHandler {
         _mode = .normal
         _state = .idle
         _countAccumulator = 0
+        _operatorCount = 0
         _pendingOperator = nil
     }
 
@@ -198,6 +200,7 @@ final class VimInputHandler {
             _mode = .normal
             _state = .idle
             _countAccumulator = 0
+            _operatorCount = 0
             _pendingOperator = nil
             if _isRecordingInsert {
                 _lastChangeInsertText = _insertBuffer
@@ -258,7 +261,7 @@ final class VimInputHandler {
             _state = .idle
             switch reason {
             case .find:
-                let count = consumeCount()
+                let count = consumeOperatorCount()
                 if let op = _pendingOperator {
                     _pendingOperator = nil
                     let result: VimResult = .operatorMotion(op, .findChar(key), count: count)
@@ -268,7 +271,7 @@ final class VimInputHandler {
                 }
                 return .motion(.findChar(key), count: count)
             case .till:
-                let count = consumeCount()
+                let count = consumeOperatorCount()
                 if let op = _pendingOperator {
                     _pendingOperator = nil
                     let result: VimResult = .operatorMotion(op, .tillChar(key), count: count)
@@ -278,8 +281,8 @@ final class VimInputHandler {
                 }
                 return .motion(.tillChar(key), count: count)
             case .replace:
-                _ = consumeCount()
-                let result: VimResult = .replaceChar(key)
+                let count = consumeCount()
+                let result: VimResult = .replaceChar(key, count: count)
                 recordChange(result, entersInsert: false)
                 return result
             }
@@ -289,7 +292,7 @@ final class VimInputHandler {
             switch context {
             case .g:
                 if key == "g" {
-                    let count = consumeCount()
+                    let count = consumeOperatorCount()
                     if let op = _pendingOperator {
                         _pendingOperator = nil
                         let result: VimResult = .operatorMotion(op, .documentStart, count: count)
@@ -299,15 +302,18 @@ final class VimInputHandler {
                     }
                     return .motion(.documentStart, count: count)
                 }
-                // Unknown g-command, reset
-                _ = consumeCount()
+                // Unknown g-command: reset counts AND the pending operator,
+                // or an aborted "dg?" would leave delete armed for the next
+                // motion (e.g. a later "fa" would delete to 'a').
+                _pendingOperator = nil
+                _ = consumeOperatorCount()
                 return .pending
             }
 
         case .awaitingTextObject(let op, let isInner):
             _state = .idle
             _pendingOperator = nil
-            let count = consumeCount()
+            let count = consumeOperatorCount()
             if let textObj = textObjectForKey(key, isInner: isInner) {
                 let result: VimResult = .operatorTextObject(op, textObj, count: count)
                 recordChange(result, entersInsert: op == .change)
@@ -333,7 +339,7 @@ final class VimInputHandler {
             if key == opChar {
                 _state = .idle
                 _pendingOperator = nil
-                let count = consumeCount()
+                let count = consumeOperatorCount()
                 let result: VimResult = .operatorLine(op, count: count)
                 recordChange(result, entersInsert: op == .change)
                 if op == .change { _mode = .insert }
@@ -367,7 +373,7 @@ final class VimInputHandler {
             if let motion = motionForKey(key) {
                 _state = .idle
                 _pendingOperator = nil
-                let count = consumeCount()
+                let count = consumeOperatorCount()
                 let result: VimResult = .operatorMotion(op, motion, count: count)
                 recordChange(result, entersInsert: op == .change)
                 if op == .change { _mode = .insert }
@@ -377,7 +383,7 @@ final class VimInputHandler {
             // Unknown motion; reset
             _state = .idle
             _pendingOperator = nil
-            _ = consumeCount()
+            _ = consumeOperatorCount()
             return .pending
 
         case .idle:
@@ -443,6 +449,7 @@ final class VimInputHandler {
         case "\u{1B}": // Escape in normal mode
             _state = .idle
             _countAccumulator = 0
+            _operatorCount = 0
             _pendingOperator = nil
             return .modeChange(.normal)
         default:
@@ -450,29 +457,8 @@ final class VimInputHandler {
         }
 
         // Operators
-        switch key {
-        case "d":
-            _pendingOperator = .delete
-            _state = .awaitingMotion(.delete)
-            return .pending
-        case "c":
-            _pendingOperator = .change
-            _state = .awaitingMotion(.change)
-            return .pending
-        case "y":
-            _pendingOperator = .yank
-            _state = .awaitingMotion(.yank)
-            return .pending
-        case ">":
-            _pendingOperator = .indent
-            _state = .awaitingMotion(.indent)
-            return .pending
-        case "<":
-            _pendingOperator = .outdent
-            _state = .awaitingMotion(.outdent)
-            return .pending
-        default:
-            break
+        if let op = operatorForKey(key) {
+            return beginOperator(op)
         }
 
         // g prefix
@@ -611,6 +597,27 @@ final class VimInputHandler {
         }
     }
 
+    private func operatorForKey(_ key: Character) -> VimOperator? {
+        switch key {
+        case "d": return .delete
+        case "c": return .change
+        case "y": return .yank
+        case ">": return .indent
+        case "<": return .outdent
+        default: return nil
+        }
+    }
+
+    /// Arm an operator: stash any count typed before it so a count typed
+    /// after it accumulates separately (vim multiplies them: 2d3w = 6w).
+    private func beginOperator(_ op: VimOperator) -> VimResult {
+        _operatorCount = _countAccumulator
+        _countAccumulator = 0
+        _pendingOperator = op
+        _state = .awaitingMotion(op)
+        return .pending
+    }
+
     private func charForOperator(_ op: VimOperator) -> Character {
         switch op {
         case .delete: return "d"
@@ -625,6 +632,15 @@ final class VimInputHandler {
         let count = _countAccumulator > 0 ? _countAccumulator : 1
         _countAccumulator = 0
         return count
+    }
+
+    /// Consume both the count typed before a pending operator and the count
+    /// typed after it. Vim multiplies the two (2d3w deletes 6 words).
+    private func consumeOperatorCount() -> Int {
+        let motionCount = consumeCount()
+        let opCount = _operatorCount > 0 ? _operatorCount : 1
+        _operatorCount = 0
+        return opCount * motionCount
     }
 }
 

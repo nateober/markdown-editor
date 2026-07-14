@@ -23,7 +23,8 @@ final class DOCXExporter {
 
     private let parser = MarkdownParser()
 
-    func exportDOCX(from markdown: String) throws -> Data {
+    /// `baseURL` (the source document's folder) lets relative image paths resolve.
+    func exportDOCX(from markdown: String, baseURL: URL? = nil) throws -> Data {
         let html = parser.parse(markdown)
 
         // Pre-process lists into styled paragraphs (NSAttributedString drops list formatting)
@@ -72,13 +73,18 @@ final class DOCXExporter {
         </html>
         """
 
+        var readingOptions: [NSAttributedString.DocumentReadingOptionKey: Any] = [
+            .documentType: NSAttributedString.DocumentType.html,
+            .characterEncoding: String.Encoding.utf8.rawValue
+        ]
+        if let baseURL {
+            readingOptions[.baseURL] = baseURL
+        }
+
         guard let htmlData = fullHTML.data(using: .utf8),
               let attributedString = NSAttributedString(
                 html: htmlData,
-                options: [
-                    .documentType: NSAttributedString.DocumentType.html,
-                    .characterEncoding: String.Encoding.utf8.rawValue
-                ],
+                options: readingOptions,
                 documentAttributes: nil
               ) else {
             throw ExportError.htmlConversionFailed

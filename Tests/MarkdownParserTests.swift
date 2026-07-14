@@ -65,4 +65,40 @@ struct MarkdownParserTests {
         let result = parser.parse("")
         #expect(result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
+
+    @Test("Raw script tags are neutralized (tagfilter)")
+    func scriptTagsFiltered() {
+        let md = "hello\n\n<script>alert(1)</script>\n\nworld"
+        let result = parser.parse(md)
+        #expect(!result.contains("<script>"), "Expected <script> to be escaped but got: \(result)")
+    }
+
+    @Test("Extract front matter from CRLF document")
+    func extractFrontMatterCRLF() {
+        let md = "---\r\ntitle: Test\r\n---\r\n# Content"
+        let result = parser.extractFrontMatter(md)
+        #expect(result == "title: Test")
+    }
+
+    @Test("Extract front matter from LF document")
+    func extractFrontMatterLF() {
+        let md = "---\ntitle: Test\n---\n# Content"
+        let result = parser.extractFrontMatter(md)
+        #expect(result == "title: Test")
+    }
+
+    @Test("A ---- separator inside front matter is not the close delimiter")
+    func frontMatterDashRuleNotClose() {
+        let md = "---\ntitle: A\n----\nkey: B\n---\nbody"
+        #expect(parser.extractFrontMatter(md) == "title: A\n----\nkey: B")
+        #expect(parser.parse(md).contains("body"))
+    }
+
+    @Test("Strip YAML front matter from CRLF document")
+    func stripFrontMatterCRLF() {
+        let md = "---\r\ntitle: Test\r\n---\r\n# Content"
+        let result = parser.parse(md)
+        #expect(!result.contains("title: Test"))
+        #expect(result.contains("<h1>"))
+    }
 }

@@ -338,6 +338,38 @@ struct VimInputHandlerTests {
         #expect(result == .operatorMotion(.delete, .wordForward, count: 3))
     }
 
+    @Test("2d3w multiplies counts (deletes 6 words)")
+    func twoD3W() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("2")
+        _ = handler.handleKey("d")
+        _ = handler.handleKey("3")
+        let result = handler.handleKey("w")
+        #expect(result == .operatorMotion(.delete, .wordForward, count: 6))
+    }
+
+    @Test("Aborted dg? sequence does not leave delete armed")
+    func abortedGCommandClearsOperator() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("d")
+        _ = handler.handleKey("g")
+        _ = handler.handleKey("s") // unknown g-command, aborts
+        _ = handler.handleKey("f")
+        let result = handler.handleKey("a")
+        #expect(result == .motion(.findChar("a"), count: 1))
+    }
+
+    @Test("2dd with prior escape does not leak stale operator count")
+    func operatorCountResetOnEscape() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("5")
+        _ = handler.handleKey("d")
+        _ = handler.handleKey("\u{1B}")
+        _ = handler.handleKey("d")
+        let result = handler.handleKey("d")
+        #expect(result == .operatorLine(.delete, count: 1))
+    }
+
     @Test("dgg deletes to document start")
     func dgg() {
         let handler = VimInputHandler()
@@ -377,7 +409,16 @@ struct VimInputHandlerTests {
         let handler = VimInputHandler()
         _ = handler.handleKey("r")
         let result = handler.handleKey("z")
-        #expect(result == .replaceChar("z"))
+        #expect(result == .replaceChar("z", count: 1))
+    }
+
+    @Test("3r replaces three characters")
+    func countedReplace() {
+        let handler = VimInputHandler()
+        _ = handler.handleKey("3")
+        _ = handler.handleKey("r")
+        let result = handler.handleKey("x")
+        #expect(result == .replaceChar("x", count: 3))
     }
 
     @Test("p pastes after cursor")
@@ -547,8 +588,8 @@ struct VimInputHandlerTests {
         let handler = VimInputHandler()
         _ = handler.handleKey("r")
         let result = handler.handleKey("z")
-        #expect(result == .replaceChar("z"))
-        #expect(handler.lastChangeResult == .replaceChar("z"))
+        #expect(result == .replaceChar("z", count: 1))
+        #expect(handler.lastChangeResult == .replaceChar("z", count: 1))
     }
 
     // MARK: - Text Objects

@@ -16,7 +16,8 @@ struct FolderSidebarView: View {
                                 FileNodeRow(
                                     node: child,
                                     selectedURL: $model.selectedFileURL,
-                                    depth: 0
+                                    depth: 0,
+                                    onOpen: { model.requestOpen($0) }
                                 )
                             }
                         }
@@ -41,6 +42,7 @@ private struct FileNodeRow: View {
     let node: FileNode
     @Binding var selectedURL: URL?
     let depth: Int
+    let onOpen: (URL) -> Void
     @State private var isExpanded = true
 
     private var isSelected: Bool {
@@ -66,7 +68,7 @@ private struct FileNodeRow: View {
                             isExpanded.toggle()
                         }
                     } else {
-                        selectedURL = node.url
+                        onOpen(node.url)
                     }
                 }
 
@@ -75,7 +77,8 @@ private struct FileNodeRow: View {
                     FileNodeRow(
                         node: child,
                         selectedURL: $selectedURL,
-                        depth: depth + 1
+                        depth: depth + 1,
+                        onOpen: onOpen
                     )
                 }
             }

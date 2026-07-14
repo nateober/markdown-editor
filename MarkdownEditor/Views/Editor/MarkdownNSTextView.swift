@@ -184,14 +184,30 @@ class MarkdownNSTextView: NSTextView {
                 deleteBackward(nil)
             }
 
-        case .replaceChar(let ch):
+        case .replaceChar(let ch, let count):
             let range = selectedRange()
-            if range.location < (string as NSString).length {
-                let replaceRange = NSRange(location: range.location, length: 1)
-                if shouldChangeText(in: replaceRange, replacementString: String(ch)) {
-                    textStorage?.replaceCharacters(in: replaceRange, with: String(ch))
+            let nsString = string as NSString
+            // Line end excluding the terminator (handles \n, \r\n, U+2028...).
+            var contentsEnd = 0
+            nsString.getLineStart(nil, end: nil, contentsEnd: &contentsEnd,
+                                  for: NSRange(location: min(range.location, nsString.length), length: 0))
+            // Step forward `count` composed character sequences (vim counts
+            // characters, not UTF-16 units — never split an emoji's surrogates).
+            var end = range.location
+            var stepped = 0
+            while stepped < count && end < contentsEnd {
+                end = NSMaxRange(nsString.rangeOfComposedCharacterSequence(at: end))
+                stepped += 1
+            }
+            // Vim fails the whole command if fewer than count chars remain on the line.
+            if count > 0 && stepped == count && end <= contentsEnd {
+                let replaceRange = NSRange(location: range.location, length: end - range.location)
+                let replacement = String(repeating: String(ch), count: count)
+                if shouldChangeText(in: replaceRange, replacementString: replacement) {
+                    textStorage?.replaceCharacters(in: replaceRange, with: replacement)
                     didChangeText()
-                    setSelectedRange(NSRange(location: range.location, length: 0))
+                    let replacementLength = (replacement as NSString).length
+                    setSelectedRange(NSRange(location: range.location + max(replacementLength - 1, 0), length: 0))
                 }
             }
 
@@ -223,7 +239,7 @@ class MarkdownNSTextView: NSTextView {
             if shouldChangeText(in: range, replacementString: text) {
                 textStorage?.replaceCharacters(in: range, with: text)
                 didChangeText()
-                setSelectedRange(NSRange(location: range.location + text.count, length: 0))
+                setSelectedRange(NSRange(location: range.location + (text as NSString).length, length: 0))
             }
             vimHandler.reset()
 
@@ -426,6 +442,8 @@ class MarkdownNSTextView: NSTextView {
     }
 
     private func delimiterRange(at pos: Int, in string: NSString, delimiter: Character, around: Bool) -> NSRange? {
+        guard string.length > 0 else { return nil }
+        let pos = min(pos, string.length - 1)
         guard let delimScalar = delimiter.unicodeScalars.first else { return nil }
         let delimValue = delimScalar.value
 
@@ -482,6 +500,8 @@ class MarkdownNSTextView: NSTextView {
 
     private func pairedDelimiterRange(at pos: Int, in string: NSString,
                                        open: UInt32, close: UInt32, around: Bool) -> NSRange? {
+        guard string.length > 0 else { return nil }
+        let pos = min(pos, string.length - 1)
         // Search backward for opening delimiter
         var depth = 0
         var openPos: Int? = nil
@@ -590,7 +610,8 @@ class MarkdownNSTextView: NSTextView {
             if shouldChangeText(in: range, replacementString: yankRegister) {
                 textStorage?.replaceCharacters(in: range, with: yankRegister)
                 didChangeText()
-                setSelectedRange(NSRange(location: insertLoc + yankRegister.count - 1, length: 0))
+                let yankLength = (yankRegister as NSString).length
+                setSelectedRange(NSRange(location: insertLoc + max(yankLength - 1, 0), length: 0))
             }
         }
     }
@@ -601,25 +622,36 @@ class MarkdownNSTextView: NSTextView {
 
         guard cursorLoc < nsString.length else { return }
 
-        let lineRange = nsString.lineRange(for: NSRange(location: cursorLoc, length: 0))
-        let endOfLine = NSMaxRange(lineRange)
+        var contentsEnd = 0
+        var endOfLine = 0
+        nsString.getLineStart(nil, end: &endOfLine, contentsEnd: &contentsEnd,
+                              for: NSRange(location: cursorLoc, length: 0))
 
         guard endOfLine < nsString.length else { return }
 
-        // Find the newline character at end of current line
-        // Remove the newline and any leading whitespace on the next line, replace with a space
+        // Remove the line terminator (may be \r\n — contentsEnd handles that)
+        // and any leading whitespace on the next line, replace with a space.
         let nextLineRange = nsString.lineRange(for: NSRange(location: endOfLine, length: 0))
-        let nextLineContent = nsString.substring(with: nextLineRange)
-        let trimmedNext = nextLineContent.trimmingCharacters(in: .whitespaces)
+        let nextLineEnd = NSMaxRange(nextLineRange)
 
-        // The range to replace: from the newline before endOfLine to the start of actual content on next line
-        let newlineStart = endOfLine - 1 // Position of '\n'
-        let contentStart = nextLineRange.location + (nextLineContent.count - trimmedNext.count)
-        // If next line is just a newline, handle that
-        let replaceRangeLen = contentStart - newlineStart
-        let replaceRange = NSRange(location: newlineStart, length: replaceRangeLen)
+        // The range to replace: from the current line's terminator to the start of actual content on next line
+        let newlineStart = contentsEnd
+        var contentStart = nextLineRange.location
+        while contentStart < nextLineEnd {
+            let ch = nsString.character(at: contentStart)
+            if ch == 0x20 || ch == 0x09 { contentStart += 1 } else { break }
+        }
+        // Whether the next line has any real content after its leading whitespace
+        let nextHasContent: Bool
+        if contentStart < nextLineEnd {
+            let ch = nsString.character(at: contentStart)
+            nextHasContent = ch != 0x0A && ch != 0x0D
+        } else {
+            nextHasContent = false
+        }
+        let replaceRange = NSRange(location: newlineStart, length: contentStart - newlineStart)
 
-        let replacement = trimmedNext.isEmpty ? "" : " "
+        let replacement = nextHasContent ? " " : ""
         if shouldChangeText(in: replaceRange, replacementString: replacement) {
             textStorage?.replaceCharacters(in: replaceRange, with: replacement)
             didChangeText()
@@ -632,7 +664,7 @@ class MarkdownNSTextView: NSTextView {
         let lineRange = nsString.lineRange(for: range)
         let lines = nsString.substring(with: lineRange)
         let indented = lines.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { "    " + $0 }
+            .map { $0.isEmpty ? String($0) : "    " + $0 }
             .joined(separator: "\n")
 
         if shouldChangeText(in: lineRange, replacementString: indented) {

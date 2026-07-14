@@ -9,7 +9,12 @@ final class FolderTreeModel {
     var selectedFileURL: URL?
     var folderURL: URL?
 
+    /// Incremented on every file click, so re-clicking the already-selected
+    /// file still triggers an open (selectedFileURL alone wouldn't change).
+    private(set) var openRequestCount = 0
+
     private var fileWatcher: FileWatcher?
+    private var refreshGeneration = 0
 
     /// Loads a folder and builds the file tree.
     /// Sets up a file watcher to automatically refresh on changes.
@@ -19,13 +24,30 @@ final class FolderTreeModel {
         setupWatcher(for: url)
     }
 
+    /// Records a request to open a file, even if it is already selected.
+    func requestOpen(_ url: URL) {
+        selectedFileURL = url
+        openRequestCount += 1
+    }
+
     /// Refreshes the file tree from the current folder URL.
+    /// The directory walk runs off the main thread — the watcher can fire on
+    /// every save, and a large tree would otherwise stall typing.
     func refresh() {
         guard let folderURL = folderURL else {
             rootNode = nil
             return
         }
-        rootNode = FileNode.buildTree(from: folderURL)
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        Task.detached(priority: .utility) {
+            let node = FileNode.buildTree(from: folderURL)
+            await MainActor.run {
+                // Drop stale results if a newer refresh started meanwhile.
+                guard generation == self.refreshGeneration else { return }
+                self.rootNode = node
+            }
+        }
     }
 
     /// Closes the current folder and cleans up the watcher.

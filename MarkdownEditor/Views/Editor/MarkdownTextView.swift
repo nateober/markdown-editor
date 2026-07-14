@@ -64,7 +64,15 @@ struct MarkdownTextView: NSViewRepresentable {
             if let storage = textView.textStorage {
                 storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: text)
             }
-            textView.selectedRanges = selectedRanges
+            // Clamp restored selections: the new text may be shorter than the old,
+            // and setting an out-of-bounds range raises an AppKit exception.
+            let newLength = (textView.string as NSString).length
+            textView.selectedRanges = selectedRanges.map { value in
+                let range = value.rangeValue
+                let location = min(range.location, newLength)
+                let length = min(range.length, newLength - location)
+                return NSValue(range: NSRange(location: location, length: length))
+            }
         }
     }
 
